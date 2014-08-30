@@ -128,6 +128,36 @@ module Peg
       @rule.match(input)
     end
   end
+
+  class Grammar
+    def self.rule(name, body)
+      case body
+      when Symbol
+        rule(name, [[body, body]])
+      when Array
+        # do actual stuff here
+      else
+        rule(name, [body])
+      end
+    end
+  end
+end
+
+class Simple < Peg::Grammar
+  rule :top, [[Any.new, :x], "b", [Any.new, :y]] { |x:, y:| x + y }
+end
+
+Simple.new.match("abc") # => "ac"
+Simple.new.match("abcd") # => "ac"
+Simple.new.match("ab") # => nil
+
+class Addition < Peg::Grammar
+  rule :expr, [:num, "+", :expr] { |num:, expr:| num + expr }
+  rule :expr, :num
+
+  rule :num, [[one_or_more(:digit), :digits]] { |digits:| digits.join.to_i }
+
+  rule :digit Characters.new(%w<0 1 2 3 4 5 6 7 8 9>)
 end
 
 if __FILE__ == $0
