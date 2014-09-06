@@ -4,82 +4,74 @@ require 'peg'
 
 module Peg
   class PegTest < Minitest::Test
-    def assert_matches(input, peg)
-      assert peg.match(input), "`peg' did not match `#{input}'"
-    end
-
-    def assert_doesnt_match(input, peg)
-      assert_nil peg.match(input), "`peg' matched `#{input}' when it shouldn't have"
-    end
-
     def test_string_rule
-      assert_matches "hello", Literal.new("hello")
-      assert_matches "hello world", Literal.new("hello")
-      assert_doesnt_match "goodbye", Literal.new("hello")
-      assert_doesnt_match "hello", Literal.new("hello world")
+      assert_match Literal.new("hello"), "hello"
+      assert_match Literal.new("hello"), "hello world"
+      refute_match Literal.new("hello"), "goodbye"
+      refute_match Literal.new("hello world"), "hello"
     end
 
     def test_sequence_peg
       peg = Sequence.new(Literal.new("a"), Literal.new("b"))
-      assert_matches "ab", peg
-      assert_doesnt_match "ac", peg
+      assert_match peg, "ab"
+      refute_match peg, "ac"
     end
 
     def test_ordered_choice
       peg = OrderedChoice.new(Literal.new("a"), Literal.new("b"), Literal.new("ab"))
-      assert_matches "a", peg
-      assert_matches "b", peg
-      assert_matches "ab", peg
-      assert_matches "abc", peg
-      assert_doesnt_match "cde", peg
+      assert_match peg, "a"
+      assert_match peg, "b"
+      assert_match peg, "ab"
+      assert_match peg, "abc"
+      refute_match peg, "cde"
     end
 
     def test_any
-      assert_matches "a", Any.new
-      assert_doesnt_match "", Any.new
+      assert_match Any.new, "a"
+      refute_match Any.new, ""
     end
 
     def test_not
-      assert_matches "", Not.new(Any.new)
-      assert_matches "a", Not.new(Not.new(Any.new))
+      assert_match Not.new(Any.new), ""
+      assert_match Not.new(Not.new(Any.new)), "a"
     end
 
     def test_lookahead
       peg = Lookahead.new(Literal.new("ab"))
-      assert_matches "abc", peg
-      assert_doesnt_match "bbc", peg
+      assert_match peg, "abc"
+      refute_match peg, "bbc"
     end
 
     def test_maybe
       peg = Maybe.new(Literal.new("a"))
-      assert_matches "a", peg
-      assert_matches "b", peg
+      assert_match peg, "a"
+      assert_match peg, "b"
     end
 
     def test_zero_or_more
       peg = ZeroOrMore.new(Literal.new("a"))
-      assert_matches "", peg
-      assert_matches "a", peg
-      assert_matches "aa", peg
+      assert_match peg, ""
+      assert_match peg, "a"
+      assert_match peg, "aa"
     end
 
     def test_one_or_more
       peg = OneOrMore.new(Literal.new("a"))
-      assert_doesnt_match "", peg
-      assert_matches "a", peg
-      assert_matches "aa", peg
+      refute_match peg, ""
+      assert_match peg, "a"
+      assert_match peg, "aa"
     end
 
     def test_grouping
-      assert_matches "abc", Grouping.new(Literal.new("abc"))
+      assert_match Grouping.new(Literal.new("abc")), "abc"
     end
 
     def test_chars
       peg = Characters.new(?a, ?b, ?c)
-      assert_matches "a", peg
-      assert_matches "b", peg
-      assert_matches "c", peg
-      assert_doesnt_match "d", peg
+      assert_match peg, "a"
+      assert_match peg, "b"
+      assert_match peg, "c"
+      refute_match peg, "d"
     end
 
     def test_grammar
@@ -87,9 +79,9 @@ module Peg
         rule :top, ["hello", :x], "world"
       end
 
-      assert_matches "helloworld", g
-      assert_matches "helloworldfoo", g
-      assert_doesnt_match "hello", g
+      assert_match g, "helloworld"
+      assert_match g, "helloworldfoo"
+      refute_match g, "hello"
     end
   end
 end
