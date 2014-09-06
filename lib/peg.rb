@@ -17,6 +17,63 @@ module Peg
     end
   end
 
+  class MatchData
+    attr_reader :bindings
+    attr_accessor :value, :pos
+
+    module StringConversion
+      refine String do
+        def to_match_data
+          MatchData.new(self)
+        end
+      end
+    end
+
+    def initialize(input, pos = 0)
+      @input = input
+      @pos = pos
+      @last_match = nil
+      @bindings = {}
+    end
+
+    def clone_with_progress
+      self.class.new(@input, @pos)
+    end
+
+    def [](name)
+      @bindings[name]
+    end
+
+    def input
+      @input[@pos..-1]
+    end
+
+    def matched_input
+      @input[0...@pos]
+    end
+
+    def advance(size)
+      @last_match = @input[pos...(pos + size)]
+      @pos += size
+
+      self
+    end
+
+    def clear_last_match
+      @last_match = nil
+    end
+
+    def capture_last_match(name)
+      if @last_match
+        @bindings[name] = @last_match
+      end
+    end
+
+    def to_match_data
+      self
+    end
+  end
+
   class Rule
     class << self
       def parse(grammar, body, action)
@@ -55,6 +112,8 @@ module Peg
       end
     end
 
+    using MatchData::StringConversion
+
     attr_accessor :name, :action
 
     def initialize(name: name, action: action)
@@ -71,13 +130,34 @@ module Peg
     end
 
     def match(input)
-      res = check_match(input)
+      match_data = input.to_match_data
 
-      if action && res
-        action.call
+      if action
+        old_bindings = match_data
+        match_data = match_data.clone_with_progress
       end
 
-      res
+      match_data.clear_last_match
+      match_data = check_match(match_data)
+
+      return nil unless match_data
+
+      if name
+        match_data.capture_last_match(name)
+      end
+
+      if action && match_data
+        match_data.value = action.call(**match_data.bindings)
+      end
+
+      if old_bindings
+        old_bindings.value = match_data.value
+        old_bindings.pos = match_data.pos
+
+        old_bindings
+      else
+        match_data
+      end
     end
 
     alias =~ match
@@ -90,9 +170,9 @@ module Peg
       @s = s
     end
 
-    def check_match(input)
-      if input.start_with? @s
-        input[@s.size..-1]
+    def check_match(match_data)
+      if match_data.input.start_with? @s
+        match_data.advance(@s.size)
       end
     end
   end
@@ -109,12 +189,12 @@ module Peg
       self
     end
 
-    def check_match(input)
-      @rules.reduce(input) do |input, rule|
-        if input
-          rule.match input
+    def check_match(match_data)
+      @rules.reduce(match_data) do |md, rule|
+        if md
+          rule.match md
         else
-          input
+          md
         end
       end
     end
@@ -132,9 +212,9 @@ module Peg
       self
     end
 
-    def check_match(input)
+    def check_match(match_data)
       @rules.each do |rule|
-        res = rule.match(input)
+        res = rule.match(match_data)
         return res if res
       end
 
@@ -143,9 +223,9 @@ module Peg
   end
 
   class Any < Rule
-    def check_match(input)
-      unless input.empty?
-        input[1..-1]
+    def check_match(match_data)
+      unless match_data.input.empty?
+        match_data.advance(1)
       end
     end
   end
@@ -156,9 +236,9 @@ module Peg
       @rule = rule
     end
 
-    def check_match(input)
-      unless @rule.match(input)
-        input
+    def check_match(match_data)
+      unless @rule.match(match_data)
+        match_data
       end
     end
   end
@@ -169,8 +249,8 @@ module Peg
       @rule = Not.new(Not.new(rule))
     end
 
-    def check_match(input)
-      @rule.match(input)
+    def check_match(match_data)
+      @rule.match(match_data)
     end
   end
 
@@ -180,8 +260,8 @@ module Peg
       @rule = rule
     end
 
-    def check_match(input)
-      @rule.match(input) || input
+    def check_match(match_data)
+      @rule.match(match_data) || match_data
     end
   end
 
@@ -191,10 +271,10 @@ module Peg
       @rule = rule
     end
 
-    def check_match(input)
-      until input.nil?
-        old = input
-        input = @rule.match(input)
+    def check_match(match_data)
+      until match_data.nil?
+        old = match_data
+        match_data = @rule.match(match_data)
       end
 
       old
@@ -207,8 +287,8 @@ module Peg
       @rule = Sequence.new(rule, ZeroOrMore.new(rule))
     end
 
-    def check_match(input)
-      @rule.match(input)
+    def check_match(match_data)
+      @rule.match(match_data)
     end
   end
 
@@ -218,8 +298,8 @@ module Peg
       @rule = rule
     end
 
-    def check_match(input)
-      @rule.match(input)
+    def check_match(match_data)
+      @rule.match(match_data)
     end
   end
 
@@ -229,8 +309,8 @@ module Peg
       @rule = OrderedChoice.new(*chars.map { |c| Literal.new(c) })
     end
 
-    def check_match(input)
-      @rule.match(input)
+    def check_match(match_data)
+      @rule.match(match_data)
     end
   end
 
@@ -241,14 +321,14 @@ module Peg
       @target = target
     end
 
-    def check_match(input)
-      @grammar[@target].match(input)
+    def check_match(match_data)
+      @grammar[@target].match(match_data)
     end
   end
 
   class Grammar
     class << self
-      def rule(name, *body, &action)
+      def rule(name, body, &action)
         @rules  ||= Hash.new { NullRule.new }
         @target ||= name
 
@@ -256,7 +336,11 @@ module Peg
       end
 
       def match(input)
-        @rules[@target].match(input)
+        md = @rules[@target].match(input)
+
+        if md
+          md.value || md.matched_input
+        end
       end
 
       alias =~ match

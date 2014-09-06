@@ -75,13 +75,21 @@ module Peg
     end
 
     def test_grammar
-      g = Class.new(Peg::Grammar) do
-        rule :top, ["hello", :x], "world"
+      g = Class.new(Grammar) do
+        rule :top, [["hello", :x], "world"]
       end
 
       assert_match g, "helloworld"
       assert_match g, "helloworldfoo"
       refute_match g, "hello"
+    end
+
+    def test_captured_rule
+      g = Class.new(Grammar) do
+        rule :top, [[Any.new, :x], "b", [Any.new, :y]] { |x:, y:| x + y }
+      end
+
+      assert_equal "ac", g.match("abc")
     end
   end
 end
