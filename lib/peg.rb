@@ -1,24 +1,113 @@
 require "peg/version"
 
 module Peg
-  class Literal
-    def initialize(s)
-      @s = s
+  class ParseError < StandardError; end
+
+  class NullRule
+    def |(rule)
+      rule
+    end
+
+    def <<(rule)
+      rule
     end
 
     def match(input)
+      nil
+    end
+  end
+
+  class Rule
+    class << self
+      def parse(grammar, body, action)
+        rule = NullRule.new
+
+        if body.empty?
+          raise ParseError, "Rule body cannot be empty."
+        end
+
+        body.each do |item|
+          if item.is_a?(Array)
+            rule = rule << process(grammar, item[0], name: item[1])
+          else
+            rule = rule << process(grammar, item)
+          end
+        end
+
+        rule.action = action
+
+        rule
+      end
+
+      private
+
+      def process(grammar, item, **options)
+        case item
+        when String
+          Literal.new(item, **options)
+        when Symbol
+          Call.new(grammar, item, **options)
+        else
+          item.name = options[:name]
+
+          item
+        end
+      end
+    end
+
+    attr_reader :name
+    attr_accessor :name, :action
+
+    def initialize(name: name, action: action)
+      @name = name
+      @action = action
+    end
+
+    def <<(rule)
+      Sequence.new(self, rule)
+    end
+
+    def |(rule)
+      OrderedChoice.new(self, rule)
+    end
+
+    def match(input)
+      res = check_match(input)
+
+      if action && res
+        action.call
+      end
+
+      res
+    end
+  end
+
+  class Literal < Rule
+    def initialize(s, **options)
+      super(**options)
+      @s = s
+    end
+
+    def check_match(input)
       if input.start_with? @s
         input[@s.size..-1]
       end
     end
   end
 
-  class Sequence
-    def initialize(*rules)
+  class Sequence < Rule
+    def initialize(*rules, **options)
+      super(**options)
       @rules = rules
     end
 
-    def match(input)
+    def <<(rule)
+      @rules << rule
+
+      self
+    end
+
+    def check_match(input)
       @rules.reduce(input) do |input, rule|
         if input
           rule.match input
@@ -29,12 +118,19 @@ module Peg
     end
   end
 
-  class OrderedChoice
-    def initialize(*rules)
+  class OrderedChoice < Rule
+    def initialize(*rules, **options)
+      super(**options)
       @rules = rules
     end
 
-    def match(input)
+    def |(rule)
+      @rules << rule
+
+      self
+    end
+
+    def check_match(input)
       @rules.each do |rule|
         res = rule.match(input)
         return res if res
@@ -44,52 +140,56 @@ module Peg
     end
   end
 
-  class Any
-    def match(input)
+  class Any < Rule
+    def check_match(input)
       unless input.empty?
         input[1..-1]
       end
     end
   end
 
-  class Not
-    def initialize(rule)
+  class Not < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = rule
     end
 
-    def match(input)
+    def check_match(input)
       unless @rule.match(input)
         input
       end
     end
   end
 
-  class Lookahead
-    def initialize(rule)
+  class Lookahead < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = Not.new(Not.new(rule))
     end
 
-    def match(input)
+    def check_match(input)
       @rule.match(input)
     end
   end
 
-  class Maybe
-    def initialize(rule)
+  class Maybe < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = rule
     end
 
-    def match(input)
+    def check_match(input)
       @rule.match(input) || input
     end
   end
 
-  class ZeroOrMore
-    def initialize(rule)
+  class ZeroOrMore < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = rule
     end
 
-    def match(input)
+    def check_match(input)
       until input.nil?
         old = input
         input = @rule.match(input)
@@ -99,50 +199,72 @@ module Peg
     end
   end
 
-  class OneOrMore
-    def initialize(rule)
+  class OneOrMore < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = Sequence.new(rule, ZeroOrMore.new(rule))
     end
 
-    def match(input)
+    def check_match(input)
       @rule.match(input)
     end
   end
 
-  class Grouping
-    def initialize(rule)
+  class Grouping < Rule
+    def initialize(rule, **options)
+      super(**options)
       @rule = rule
     end
 
-    def match(input)
+    def check_match(input)
       @rule.match(input)
     end
   end
 
-  class Characters
-    def initialize(*chars)
+  class Characters < Rule
+    def initialize(*chars, **options)
+      super(**options)
       @rule = OrderedChoice.new(*chars.map { |c| Literal.new(c) })
     end
 
-    def match(input)
+    def check_match(input)
       @rule.match(input)
+    end
+  end
+
+  class Call < Rule
+    def initialize(grammar, target, **options)
+      super(**options)
+      @grammar = grammar
+      @target = target
+    end
+
+    def check_match(input)
+      @grammar[@target].match(input)
     end
   end
 
   class Grammar
-    def self.rule(name, body)
-      case body
-      when Symbol
-        rule(name, [[body, body]])
-      when Array
-        # do actual stuff here
-      else
-        rule(name, [body])
+    class << self
+      def rule(name, *body, &action)
+        @rules  ||= Hash.new { NullRule.new }
+        @target ||= name
+
+        @rules[name] = @rules[name] | Rule.parse(self, body, action)
+      end
+
+      def match(input)
+        @rules[@target].match(input)
+      end
+
+      def [](name)
+        @rules[name]
       end
     end
   end
 end
 
+=begin
 class Simple < Peg::Grammar
   rule :top, [[Any.new, :x], "b", [Any.new, :y]] { |x:, y:| x + y }
 end
@@ -152,13 +274,20 @@ Simple.new.match("abcd") # => "ac"
 Simple.new.match("ab") # => nil
 
 class Addition < Peg::Grammar
-  rule :expr, [:num, "+", :expr] { |num:, expr:| num + expr }
+  rule :expr, [[:num, :n], "+", [:expr, :e]] { |n:, e:| n + e }
   rule :expr, :num
 
   rule :num, [[one_or_more(:digit), :digits]] { |digits:| digits.join.to_i }
 
   rule :digit Characters.new(%w<0 1 2 3 4 5 6 7 8 9>)
 end
+=end
+
+#class Simple < Peg::Grammar
+  #rule :top, [Peg::Any.new, :x], "b", [Peg::Any.new, :y] { |x:, y:| x + y }
+#end
+
+#Simple.match("abc") # => "ac"
 
 if __FILE__ == $0
   require 'minitest/autorun'
@@ -172,19 +301,19 @@ if __FILE__ == $0
         assert_nil Literal.new("hello world").match("hello")
       end
 
-      def test_sequence_rule
-        rule = Sequence.new(Literal.new("a"), Literal.new("b"))
-        assert_equal "", rule.match("ab")
-        assert_nil rule.match("ac")
+      def test_sequence_peg
+        peg = Sequence.new(Literal.new("a"), Literal.new("b"))
+        assert_equal "", peg.match("ab")
+        assert_nil peg.match("ac")
       end
 
       def test_ordered_choice
-        rule = OrderedChoice.new(Literal.new("a"), Literal.new("b"), Literal.new("ab"))
-        assert_equal "", rule.match("a")
-        assert_equal "", rule.match("b")
-        assert_equal "b", rule.match("ab")
-        assert_equal "bc", rule.match("abc")
-        assert_nil rule.match("cde")
+        peg = OrderedChoice.new(Literal.new("a"), Literal.new("b"), Literal.new("ab"))
+        assert_equal "", peg.match("a")
+        assert_equal "", peg.match("b")
+        assert_equal "b", peg.match("ab")
+        assert_equal "bc", peg.match("abc")
+        assert_nil peg.match("cde")
       end
 
       def test_any
@@ -198,29 +327,29 @@ if __FILE__ == $0
       end
 
       def test_lookahead
-        rule = Lookahead.new(Literal.new("ab"))
-        assert_equal "abc", rule.match("abc")
-        assert_nil rule.match("bbc")
+        peg = Lookahead.new(Literal.new("ab"))
+        assert_equal "abc", peg.match("abc")
+        assert_nil peg.match("bbc")
       end
 
       def test_maybe
-        rule = Maybe.new(Literal.new("a"))
-        assert_equal "", rule.match("a")
-        assert_equal "b", rule.match("b")
+        peg = Maybe.new(Literal.new("a"))
+        assert_equal "", peg.match("a")
+        assert_equal "b", peg.match("b")
       end
 
       def test_zero_or_more
-        rule = ZeroOrMore.new(Literal.new("a"))
-        assert_equal "", rule.match("")
-        assert_equal "", rule.match("a")
-        assert_equal "", rule.match("aa")
+        peg = ZeroOrMore.new(Literal.new("a"))
+        assert_equal "", peg.match("")
+        assert_equal "", peg.match("a")
+        assert_equal "", peg.match("aa")
       end
 
       def test_one_or_more
-        rule = OneOrMore.new(Literal.new("a"))
-        assert_nil rule.match("")
-        assert_equal "", rule.match("a")
-        assert_equal "", rule.match("aa")
+        peg = OneOrMore.new(Literal.new("a"))
+        assert_nil peg.match("")
+        assert_equal "", peg.match("a")
+        assert_equal "", peg.match("aa")
       end
 
       def test_grouping
@@ -228,11 +357,11 @@ if __FILE__ == $0
       end
 
       def test_chars
-        rule = Characters.new(?a, ?b, ?c)
-        assert_equal "", rule.match(?a)
-        assert_equal "", rule.match(?b)
-        assert_equal "", rule.match(?c)
-        assert_nil rule.match(?d)
+        peg = Characters.new(?a, ?b, ?c)
+        assert_equal "", peg.match(?a)
+        assert_equal "", peg.match(?b)
+        assert_equal "", peg.match(?c)
+        assert_nil peg.match(?d)
       end
     end
   end
