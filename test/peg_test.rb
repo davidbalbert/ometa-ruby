@@ -86,7 +86,7 @@ module Peg
 
     def test_captured_rule
       g = Class.new(Grammar) do
-        rule :top, [[Any.new, :x], "b", [Any.new, :y]] { |x:, y:| x + y }
+        rule :top, [[any, :x], "b", [any, :y]] { |x:, y:| x + y }
       end
 
       assert_equal "ac", g.match("abc")

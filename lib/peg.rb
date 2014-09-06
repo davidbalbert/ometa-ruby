@@ -335,6 +335,42 @@ module Peg
         @rules[name] = @rules[name] | Rule.parse(self, body, action)
       end
 
+      def any
+        Any.new
+      end
+
+      def not(*body)
+        Not.new(Rule.parse(self, body, nil))
+      end
+
+      def lookahead(*body)
+        Lookahead.new(Rule.parse(self, body, nil))
+      end
+
+      def maybe(*body)
+        Maybe.new(Rule.parse(self, body, nil))
+      end
+
+      def zero_or_more(*body)
+        ZeroOrMore.new(Rule.parse(self, body, nil))
+      end
+
+      def one_or_more(*body)
+        OneOrMore.new(Rule.parse(self, body, nil))
+      end
+
+      def grouping(*body)
+        Grouping.new(Rule.parse(self, body, nil))
+      end
+
+      def chars(s)
+        if s.respond_to? :to_a
+          Characters.new(*s.to_a)
+        else
+          Characters.new(*s.split)
+        end
+      end
+
       def match(input)
         md = @rules[@target].match(input)
 
