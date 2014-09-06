@@ -288,6 +288,3 @@ end
 #end
 
 #Simple.match("abc") # => "ac"
-
-if __FILE__ == $0
-end
