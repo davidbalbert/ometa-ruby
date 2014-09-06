@@ -55,7 +55,6 @@ module Peg
       end
     end
 
-    attr_reader :name
     attr_accessor :name, :action
 
     def initialize(name: name, action: action)
