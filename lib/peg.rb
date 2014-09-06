@@ -326,6 +326,8 @@ module Peg
     end
   end
 
+  class RuleNotFound < StandardError; end
+
   class Grammar
     class << self
       def rule(name, body, &action)
@@ -371,8 +373,8 @@ module Peg
         end
       end
 
-      def match(input)
-        md = @rules[@target].match(input)
+      def match(input, target = @target)
+        md = @rules[target].match(input)
 
         if md
           md.value || md.matched_input
@@ -383,6 +385,10 @@ module Peg
       alias === match
 
       def [](name)
+        unless @rules.has_key?(name)
+          raise RuleNotFound, "#{self.class.name} has no rule named `#{name}'"
+        end
+
         @rules[name]
       end
     end
@@ -404,7 +410,7 @@ class Addition < Peg::Grammar
 
   rule :num, [[one_or_more(:digit), :digits]] { |digits:| digits.join.to_i }
 
-  rule :digit Characters.new(%w<0 1 2 3 4 5 6 7 8 9>)
+  rule :digit [chars("0".."9")]
 end
 =end
 
