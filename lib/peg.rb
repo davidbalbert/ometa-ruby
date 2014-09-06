@@ -79,6 +79,8 @@ module Peg
 
       res
     end
+
+    alias =~ match
   end
 
   class Literal < Rule
@@ -255,6 +257,8 @@ module Peg
       def match(input)
         @rules[@target].match(input)
       end
+
+      alias =~ match
 
       def [](name)
         @rules[name]
