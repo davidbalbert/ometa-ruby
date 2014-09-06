@@ -363,6 +363,16 @@ if __FILE__ == $0
         assert_equal "", peg.match(?c)
         assert_nil peg.match(?d)
       end
+
+      def test_grammar
+        g = Class.new(Peg::Grammar) do
+          rule :top, ["hello", :x], "world"
+        end
+
+        assert_equal "", g.match("helloworld")
+        assert_equal "foo", g.match("helloworldfoo")
+        assert_nil g.match("hello")
+      end
     end
   end
 end
