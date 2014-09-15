@@ -3,326 +3,311 @@ require "peg/version"
 module Peg
   class ParseError < StandardError; end
 
-  class NullRule
-    def |(rule)
-      rule
-    end
-
-    def <<(rule)
-      rule
-    end
-
-    def match(input)
-      nil
-    end
-  end
-
-  class MatchData
-    attr_reader :bindings
-    attr_accessor :value, :pos
-
-    module StringConversion
-      refine String do
-        def to_match_data
-          MatchData.new(self)
-        end
-      end
-    end
-
-    def initialize(input, pos = 0)
-      @input = input
-      @pos = pos
-      @last_match = nil
-      @bindings = {}
-    end
-
-    def clone_with_progress
-      self.class.new(@input, @pos)
-    end
-
-    def [](name)
-      @bindings[name]
-    end
-
-    def input
-      @input[@pos..-1]
-    end
-
-    def matched_input
-      @input[0...@pos]
-    end
-
-    def advance(size)
-      @last_match = @input[pos...(pos + size)]
-      @pos += size
-
-      self
-    end
-
-    def clear_last_match
-      @last_match = nil
-    end
-
-    def capture_last_match(name)
-      if @last_match
-        @bindings[name] = @last_match
-      end
-    end
-
-    def to_match_data
-      self
-    end
-  end
-
   class Rule
-    class << self
-      def parse(grammar, body, action)
-        rule = NullRule.new
+    attr_accessor :action, :name
+    attr_reader :value
 
-        if body.empty?
-          raise ParseError, "Rule body cannot be empty."
-        end
-
-        body.each do |item|
-          if item.is_a?(Array)
-            rule = rule << process(grammar, item[0], name: item[1])
-          else
-            rule = rule << process(grammar, item)
-          end
-        end
-
-        rule.action = action
-
-        rule
-      end
-
-      private
-
-      def process(grammar, item, **options)
-        case item
-        when String
-          Literal.new(item, **options)
-        when Symbol
-          Call.new(grammar, item, **options)
-        else
-          item.name = options[:name]
-
-          item
-        end
-      end
-    end
-
-    using MatchData::StringConversion
-
-    attr_accessor :name, :action
-
-    def initialize(name: name, action: action)
+    def initialize(name: nil, &action)
       @name = name
       @action = action
     end
 
-    def <<(rule)
-      Sequence.new(self, rule)
-    end
-
-    def |(rule)
-      OrderedChoice.new(self, rule)
-    end
-
-    def match(input)
-      match_data = input.to_match_data
-
-      if action
-        old_bindings = match_data
-        match_data = match_data.clone_with_progress
-      end
-
-      match_data.clear_last_match
-      match_data = check_match(match_data)
-
-      return nil unless match_data
-
-      if name
-        match_data.capture_last_match(name)
-      end
-
-      if action && match_data
-        match_data.value = action.call(**match_data.bindings)
-      end
-
-      if old_bindings
-        old_bindings.value = match_data.value
-        old_bindings.pos = match_data.pos
-
-        old_bindings
+    def bindings
+      if @name && @value
+        {@name => @value}
       else
-        match_data
+        {}
       end
     end
 
-    alias =~ match
-    alias === match
+    def =~(other)
+      match(other)
+    end
+
+    def ===(other)
+      match(other)
+    end
   end
 
   class Literal < Rule
-    def initialize(s, **options)
-      super(**options)
+    def initialize(s, **options, &action)
+      super(**options, &action)
       @s = s
+      @value = nil
     end
 
-    def check_match(match_data)
-      if match_data.input.start_with? @s
-        match_data.advance(@s.size)
+    def match(g)
+      return nil unless g.input.start_with?(@s)
+
+      g.advance(@s.size)
+      @value = @s
+
+      if @action
+        @value = @action.call(**bindings)
       end
+
+      @value
     end
   end
 
   class Sequence < Rule
-    def initialize(*rules, **options)
-      super(**options)
+    def initialize(*rules, **options, &action)
+      super(**options, &action)
       @rules = rules
+      @value = nil
     end
 
-    def <<(rule)
-      @rules << rule
+    def match(g)
+      @rules.each do |rule|
+        @value = rule.match(g)
 
-      self
+        return nil unless @value
+      end
+
+      if @action
+        @value = @action.call(**bindings_of_children)
+      end
+
+      @value
     end
 
-    def check_match(match_data)
-      @rules.reduce(match_data) do |md, rule|
-        if md
-          rule.match md
-        else
-          md
-        end
+    private
+
+    def bindings_of_children
+      if @value
+        @rules.map(&:bindings).reduce(:merge)
+      else
+        {}
       end
     end
   end
 
   class OrderedChoice < Rule
-    def initialize(*rules, **options)
-      super(**options)
+    def initialize(*rules, **options, &action)
+      super(**options, &action)
       @rules = rules
+      @value = nil
     end
 
-    def |(rule)
-      @rules << rule
-
-      self
-    end
-
-    def check_match(match_data)
+    def match(g)
       @rules.each do |rule|
-        res = rule.match(match_data)
-        return res if res
+        @value = rule.match(g)
+
+        if @value
+          @matched_rule = rule
+          break
+        end
       end
 
-      nil
+      if @value && @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
+    end
+
+    private
+
+    def bindings_of_children
+      if @value
+        @matched_rule.bindings
+      else
+        {}
+      end
     end
   end
 
   class Any < Rule
-    def check_match(match_data)
-      unless match_data.input.empty?
-        match_data.advance(1)
+    def initialize(**options, &action)
+      super(**options, &action)
+      @value = nil
+    end
+
+    def match(g)
+      unless g.input.empty?
+        @value = g.input[0]
+        g.advance(1)
+
+        if @action
+          @value = @action.call(**bindings)
+        end
+
+        @value
       end
     end
   end
 
   class Not < Rule
-    def initialize(rule, **options)
-      super(**options)
+    def initialize(rule, **options, &action)
+      super(**options, &action)
       @rule = rule
+      @value = nil
     end
 
-    def check_match(match_data)
-      unless @rule.match(match_data)
-        match_data
+    def match(g)
+      unless @rule.match(g.dup)
+        @value = true
+
+        if @action
+          @value = @action.call(**bindings)
+        end
+
+        @value
       end
     end
   end
 
   class Lookahead < Rule
-    def initialize(rule, **options)
-      super(**options)
+    def initialize(rule, **options, &action)
+      super(**options, &action)
       @rule = Not.new(Not.new(rule))
+      @value = nil
     end
 
-    def check_match(match_data)
-      @rule.match(match_data)
+    def match(g)
+      @value = @rule.match(g)
+
+      if @value && @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
   class Maybe < Rule
-    def initialize(rule, **options)
-      super(**options)
+    def initialize(rule, **options, &action)
+      super(**options, &action)
       @rule = rule
+      @value = nil
     end
 
-    def check_match(match_data)
-      @rule.match(match_data) || match_data
+    def match(g)
+      @value = @rule.match(g)
+
+      if @action
+        @value = @action.call(**bindings)
+      end
+
+      # TODO: :not_matched is a gross hack, especially because if I want this
+      # to be an Ometa implementation, we'll need to be able to pattern match
+      # on symbols. A cleaner thing to do would be to rewrite this interface so
+      # that the result and the state are returned. This way we can return the
+      # old result if maybe fails but still succeeds.
+      #
+      # Another alternative would be to return a tuple [value, matched] so that
+      # here we can return [nil, true] to say that we didn't get anything but
+      # we still matched.
+      @value || :maybe_not_matched
     end
   end
 
   class ZeroOrMore < Rule
-    def initialize(rule, **options)
-      super(**options)
+    def initialize(rule, **options, &action)
+      super(**options, &action)
       @rule = rule
+      @value = []
     end
 
-    def check_match(match_data)
-      until match_data.nil?
-        old = match_data
-        match_data = @rule.match(match_data)
+    def match(g)
+      loop do
+        val = @rule.match(g)
+        break unless val
+
+        @value << val
       end
 
-      old
+      if @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
   class OneOrMore < Rule
-    def initialize(rule, **options)
-      super(**options)
-      @rule = Sequence.new(rule, ZeroOrMore.new(rule))
+    def initialize(rule, **options, &action)
+      super(**options, &action)
+      @rule = rule
+      @value = nil
     end
 
-    def check_match(match_data)
-      @rule.match(match_data)
+    def match(g)
+      val = @rule.match(g)
+      return nil unless val
+
+      @value = [val]
+
+      until val.nil?
+        val = @rule.match(g)
+        @value << val if val
+      end
+
+      if @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
   class Grouping < Rule
-    def initialize(rule, **options)
-      super(**options)
+    def initialize(rule, **options, &action)
+      super(**options, &action)
       @rule = rule
+      @value = nil
     end
 
-    def check_match(match_data)
-      @rule.match(match_data)
+    def match(g)
+      @value = @rule.match(g)
+
+      if @value && @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
   class Characters < Rule
-    def initialize(*chars, **options)
-      super(**options)
+    def initialize(*chars, **options, &action)
+      super(**options, &action)
+
+      if chars.size == 1 && chars[0].respond_to?(:to_a)
+        chars = chars[0].to_a
+      end
+
       @rule = OrderedChoice.new(*chars.map { |c| Literal.new(c) })
+      @value = nil
     end
 
-    def check_match(match_data)
-      @rule.match(match_data)
+    def match(g)
+      @value = @rule.match(g)
+
+      if @value && @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
   class Call < Rule
-    def initialize(grammar, target, **options)
-      super(**options)
+    def initialize(grammar, target, **options, &action)
+      super(**options, &action)
       @grammar = grammar
       @target = target
+      @value = nil
     end
 
-    def check_match(match_data)
-      @grammar[@target].match(match_data)
+    def match(g)
+      @value = @grammar[@target].match(g)
+
+      if @value && @action
+        @value = @action.call(**bindings)
+      end
+
+      @value
     end
   end
 
@@ -330,74 +315,71 @@ module Peg
 
   class Grammar
     class << self
-      def rule(name, body, &action)
-        @rules  ||= Hash.new { NullRule.new }
-        @target ||= name
-
-        @rules[name] = @rules[name] | Rule.parse(self, body, action)
-      end
-
-      def any
-        Any.new
-      end
-
-      def not(*body)
-        Not.new(Rule.parse(self, body, nil))
-      end
-
-      def lookahead(*body)
-        Lookahead.new(Rule.parse(self, body, nil))
-      end
-
-      def maybe(*body)
-        Maybe.new(Rule.parse(self, body, nil))
-      end
-
-      def zero_or_more(*body)
-        ZeroOrMore.new(Rule.parse(self, body, nil))
-      end
-
-      def one_or_more(*body)
-        OneOrMore.new(Rule.parse(self, body, nil))
-      end
-
-      def grouping(*body)
-        Grouping.new(Rule.parse(self, body, nil))
-      end
-
-      def chars(s)
-        if s.respond_to? :to_a
-          Characters.new(*s.to_a)
-        else
-          Characters.new(*s.split)
-        end
+      def target(t)
+        @target = target
       end
 
       def match(input, target = @target)
-        md = @rules[target].match(input)
-
-        if md
-          md.value || md.matched_input
-        end
+        new(input).match(target)
       end
 
       alias =~ match
       alias === match
 
-      def [](name)
-        unless @rules.has_key?(name)
-          raise RuleNotFound, "#{self.class.name} has no rule named `#{name}'"
-        end
+      private
 
-        @rules[name]
+      def define_proxy(*names, **explicit_mappings)
+        default_mappings = names.map do |name|
+          [name, Peg.const_get(name.to_s.split("_").map(&:capitalize).join)]
+        end.to_h
+
+        all_mappings = default_mappings.merge(explicit_mappings)
+
+        all_mappings.each do |name, klass|
+          define_method :"_#{name}" do |*args, &action|
+            klass.new(*args, &action)
+          end
+        end
       end
+    end
+
+    define_proxy :any, :not, :maybe, :zero_or_more, :one_or_more,
+      look: Lookahead,
+      lit: Literal,
+      seq: Sequence,
+      or: OrderedChoice,
+      group: Grouping,
+      chars: Characters
+
+    def initialize(input)
+      @input = input
+      @pos = 0
+    end
+
+    def match(target = @target)
+      apply(target)
+    end
+
+    def apply(rule_name)
+      send(rule_name).match(input)
+    end
+
+    def input
+      @input[@pos..-1]
+    end
+
+    def advance(n)
+      @pos += n
     end
   end
 end
 
 =begin
+
+This is outdated. There will not be any rule creation DSL.
+
 class Simple < Peg::Grammar
-  rule :top, [[Any.new, :x], "b", [Any.new, :y]] { |x:, y:| x + y }
+  rule :top, [[Any.new, :x], "b", [Any.new, :y]], -> { |x:, y:| x + y }
 end
 
 Simple.new.match("abc") # => "ac"
@@ -405,17 +387,32 @@ Simple.new.match("abcd") # => "ac"
 Simple.new.match("ab") # => nil
 
 class Addition < Peg::Grammar
-  rule :expr, [[:num, :n], "+", [:expr, :e]] { |n:, e:| n + e }
-  rule :expr, :num
+  rule :expr, [[:num, :n], "+", [:expr, :e]], -> { |n:, e:| n + e },
+              [:num]
 
-  rule :num, [[one_or_more(:digit), :digits]] { |digits:| digits.join.to_i }
+  rule :num, [[one_or_more(:digit), :digits]], -> { |digits:| digits.join.to_i }
 
   rule :digit [chars("0".."9")]
 end
+
+class Simple < Peg::Grammar
+  rule :top, [[Peg::Any.new, :x], "b", [Peg::Any.new, :y]], -> { |x:, y:| x + y }
+end
+
+Simple.match("abc") # => "ac"
+
+class Number < Peg::Grammar
+  target :number
+
+  def number
+    OneOrMore.new(apply(:digit), name: :digits) do |digits:|
+      digits.join.to_i
+    end
+  end
+
+  def digit
+    Character.new(*"0".."9")
+  end
+end
 =end
 
-#class Simple < Peg::Grammar
-  #rule :top, [Peg::Any.new, :x], "b", [Peg::Any.new, :y] { |x:, y:| x + y }
-#end
-
-#Simple.match("abc") # => "ac"
