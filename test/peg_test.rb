@@ -160,5 +160,26 @@ module Peg
       assert_match g2, "abc"
       refute_match g2, "ab"
     end
+
+    def test_super
+      g1 = Class.new(Grammar) do
+        target :abc
+
+        def abc
+          _lit("abc")
+        end
+      end
+
+      g2 = Class.new(g1) do
+        target :abc
+
+        def abc
+          _or(_lit("ABC"), super)
+        end
+      end
+
+      assert_match g2, "abc"
+      assert_match g2, "ABC"
+    end
   end
 end
