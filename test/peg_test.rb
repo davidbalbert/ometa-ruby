@@ -123,5 +123,21 @@ module Peg
 
       assert_match g, "hello"
     end
+
+    def test_variable_lookup
+      g = Class.new(Grammar) do
+        target :top
+
+        def top
+          _seq(_lit("a", name: :var), _call(:lit_with_arg, _var(:var)))
+        end
+
+        def lit_with_arg(a)
+          _lit(a)
+        end
+      end
+
+      assert_match g, "aa"
+    end
   end
 end
