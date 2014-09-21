@@ -297,14 +297,15 @@ module Peg
   end
 
   class Call < Rule
-    def initialize(target, **options, &action)
+    def initialize(target, *args, **options, &action)
       super(**options, &action)
       @target = target
+      @args = args
       @value = nil
     end
 
     def match(g)
-      @value = g.apply(@target)
+      @value = g.send(@target, *@args).match(g)
 
       if @value && @action
         @value = @action.call(**bindings)
@@ -314,12 +315,14 @@ module Peg
     end
   end
 
-  class RuleNotFound < StandardError; end
-
   class Grammar
     class << self
-      def target(target)
-        @target = target
+      def target(target = nil)
+        if target
+          @target = target
+        else
+          @target
+        end
       end
 
       def match(input, target = @target)
@@ -359,12 +362,18 @@ module Peg
       @pos = 0
     end
 
-    def match(target = @target)
-      apply(target)
+    def match(target = nil)
+      if target.nil? && self.class.target.nil?
+        raise ParseError, "Target cannot be nil. Either specify a target or set a default one using the `target' class method."
+      elsif target.nil?
+        raise ParseError, "Target cannot be nil."
+      end
+
+      send(target).match(self)
     end
 
-    def apply(rule_name)
-      send(rule_name).match(self)
+    def apply(rule_name, *args)
+      _call(rule_name, *args)
     end
 
     def input

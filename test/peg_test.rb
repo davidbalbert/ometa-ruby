@@ -107,5 +107,21 @@ module Peg
 
       assert_equal "AC", g.match("abc")
     end
+
+    def test_apply
+      g = Class.new(Grammar) do
+        target :top
+
+        def top
+          _call(:apply, :hello)
+        end
+
+        def hello
+          _lit("hello")
+        end
+      end
+
+      assert_match g, "hello"
+    end
   end
 end
