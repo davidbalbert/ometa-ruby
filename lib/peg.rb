@@ -273,9 +273,13 @@ module Peg
     def initialize(*chars, **options, &action)
       super(**options, &action)
 
-      if chars.size == 1 && chars[0].respond_to?(:to_a)
-        chars = chars[0].to_a
-      end
+      chars = chars.map do |c|
+        if c.respond_to?(:to_a)
+          c.to_a
+        else
+          c
+        end
+      end.flatten
 
       @rule = OrderedChoice.new(*chars.map { |c| Literal.new(c) })
       @value = nil
