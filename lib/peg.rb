@@ -36,7 +36,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       return nil unless g.input.start_with?(@s)
 
       g.advance(@s.size)
@@ -50,6 +50,16 @@ module Peg
     end
   end
 
+  class VariableLookup
+    def initialize(name)
+      @name = name
+    end
+
+    def lookup(context)
+      context.lookup(@name)
+    end
+  end
+
   class Sequence < Rule
     def initialize(*rules, **options, &action)
       super(**options, &action)
@@ -57,9 +67,9 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @rules.each do |rule|
-        @value = rule.match(g)
+        @value = rule.match(g, self)
 
         return nil unless @value
       end
@@ -69,6 +79,10 @@ module Peg
       end
 
       @value
+    end
+
+    def lookup(name)
+      bindings_of_children[name]
     end
 
     private
@@ -89,7 +103,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @rules.each do |rule|
         @value = rule.match(g)
 
@@ -123,7 +137,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       unless g.input.empty?
         @value = g.input[0]
         g.advance(1)
@@ -144,7 +158,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       unless @rule.match(g.dup)
         @value = true
 
@@ -164,7 +178,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @value = @rule.match(g)
 
       if @value && @action
@@ -182,7 +196,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @value = @rule.match(g)
 
       if @action
@@ -209,7 +223,7 @@ module Peg
       @value = []
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       loop do
         val = @rule.match(g)
         break unless val
@@ -232,7 +246,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       val = @rule.match(g)
       return nil unless val
 
@@ -258,7 +272,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @value = @rule.match(g)
 
       if @value && @action
@@ -285,7 +299,7 @@ module Peg
       @value = nil
     end
 
-    def match(g)
+    def match(g, lookup_context = nil)
       @value = @rule.match(g)
 
       if @value && @action
@@ -304,14 +318,26 @@ module Peg
       @value = nil
     end
 
-    def match(g)
-      @value = g.send(@target, *@args).match(g)
+    def match(g, lookup_context = nil)
+      @value = g.send(@target, *evaluated_args(lookup_context)).match(g)
 
       if @value && @action
         @value = @action.call(**bindings)
       end
 
       @value
+    end
+
+    private
+
+    def evaluated_args(context)
+      @args.map do |a|
+        if a.is_a? VariableLookup
+          a.lookup(context)
+        else
+          a
+        end
+      end
     end
   end
 
@@ -374,6 +400,10 @@ module Peg
 
     def apply(rule_name, *args)
       _call(rule_name, *args)
+    end
+
+    def _var(name)
+      VariableLookup.new(name)
     end
 
     def input
