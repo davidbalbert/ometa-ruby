@@ -214,6 +214,14 @@ module Peg
       # we still matched.
       @value || :maybe_not_matched
     end
+
+    def bindings
+      if @name
+        {@name => @value}
+      else
+        {}
+      end
+    end
   end
 
   class ZeroOrMore < Rule
@@ -341,6 +349,21 @@ module Peg
     end
   end
 
+  class Foreign
+    def initialize(klass, target)
+      @klass = klass
+      @target = target || klass.target
+    end
+
+    def match(caller)
+      p = @klass.new(caller.input)
+
+      p.match(@target)
+    ensure
+      caller.advance(p.pos)
+    end
+  end
+
   class Grammar
     class << self
       def target(target = nil)
@@ -383,6 +406,8 @@ module Peg
       _group: Grouping,
       _chars: Characters
 
+    attr_reader :pos
+
     def initialize(input)
       @input = input
       @pos = 0
@@ -400,6 +425,18 @@ module Peg
 
     def apply(rule_name, *args)
       _call(rule_name, *args)
+    end
+
+    def foreign(parser_klass, target = nil)
+      Foreign.new(parser_klass, target)
+    end
+
+    def anything
+      _any
+    end
+
+    def end
+      _not(_any)
     end
 
     def _var(name)

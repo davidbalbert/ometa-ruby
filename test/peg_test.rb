@@ -139,5 +139,26 @@ module Peg
 
       assert_match g, "aa"
     end
+
+    def test_foreign
+      g1 = Class.new(Grammar) do
+        target :top
+
+        def top
+          _lit("abc")
+        end
+      end
+
+      g2 = Class.new(Grammar) do
+        target :top
+
+        define_method :top do
+          _call(:foreign, g1)
+        end
+      end
+
+      assert_match g2, "abc"
+      refute_match g2, "ab"
+    end
   end
 end

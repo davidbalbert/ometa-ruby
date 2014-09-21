@@ -34,5 +34,6 @@ class Netstring < Peg::Grammar
 end
 
 if $0 == __FILE__
-  puts Netstring.match("hello".to_netstring)
+  input = "hello".to_netstring
+  puts "#{input.inspect} => #{Netstring.match(input).inspect}"
 end
