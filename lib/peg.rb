@@ -293,15 +293,14 @@ module Peg
   end
 
   class Call < Rule
-    def initialize(grammar, target, **options, &action)
+    def initialize(target, **options, &action)
       super(**options, &action)
-      @grammar = grammar
       @target = target
       @value = nil
     end
 
     def match(g)
-      @value = @grammar[@target].match(g)
+      @value = g.apply(@target)
 
       if @value && @action
         @value = @action.call(**bindings)
@@ -315,7 +314,7 @@ module Peg
 
   class Grammar
     class << self
-      def target(t)
+      def target(target)
         @target = target
       end
 
@@ -330,26 +329,26 @@ module Peg
 
       def define_proxy(*names, **explicit_mappings)
         default_mappings = names.map do |name|
-          [name, Peg.const_get(name.to_s.split("_").map(&:capitalize).join)]
+          [name, Peg.const_get(name[1..-1].to_s.split("_").map(&:capitalize).join)]
         end.to_h
 
         all_mappings = default_mappings.merge(explicit_mappings)
 
         all_mappings.each do |name, klass|
-          define_method :"_#{name}" do |*args, &action|
+          define_method :"#{name}" do |*args, &action|
             klass.new(*args, &action)
           end
         end
       end
     end
 
-    define_proxy :any, :not, :maybe, :zero_or_more, :one_or_more,
-      look: Lookahead,
-      lit: Literal,
-      seq: Sequence,
-      or: OrderedChoice,
-      group: Grouping,
-      chars: Characters
+    define_proxy :_any, :_not, :_maybe, :_zero_or_more, :_one_or_more, :_call,
+      _look: Lookahead,
+      _lit: Literal,
+      _seq: Sequence,
+      _or: OrderedChoice,
+      _group: Grouping,
+      _chars: Characters
 
     def initialize(input)
       @input = input
@@ -361,7 +360,7 @@ module Peg
     end
 
     def apply(rule_name)
-      send(rule_name).match(input)
+      send(rule_name).match(self)
     end
 
     def input

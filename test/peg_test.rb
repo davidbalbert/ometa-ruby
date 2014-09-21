@@ -84,12 +84,16 @@ module Peg
 
     def test_grammar
       g = Class.new(Grammar) do
-        rule :top, [["hello", :x], "world"]
+        target :top
+
+        def top
+          _seq(_lit("hello"), _lit("world"))
+        end
       end
 
-      assert_peg_match g, "helloworld"
-      assert_peg_match g, "helloworldfoo"
-      refute_peg_match g, "hello"
+      assert_match g, "helloworld"
+      assert_match g, "helloworldfoo"
+      refute_match g, "hello"
     end
 
     def test_captured_rule
@@ -97,11 +101,11 @@ module Peg
         target :top
 
         def top
-          _seq(_any(name: :x), _lit("b"), _any(name: :y)) { |x:, y:| x + y }
+          _seq(_any(name: :x), _lit("b"), _any(name: :y)) { |x:, y:| (x + y).upcase }
         end
       end
 
-      assert_equal "ac", g.match("abc")
+      assert_equal "AC", g.match("abc")
     end
   end
 end
