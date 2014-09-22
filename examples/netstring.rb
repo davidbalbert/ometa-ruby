@@ -2,7 +2,7 @@ require 'peg'
 
 class String
   def to_netstring
-    "#{size}:#{self}"
+    "#{bytesize}:#{self}"
   end
 end
 
