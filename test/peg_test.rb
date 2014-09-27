@@ -181,5 +181,22 @@ module Peg
       assert_match g2, "abc"
       assert_match g2, "ABC"
     end
+
+    def test_nested_variable_lookup
+      g = Class.new(Grammar) do
+        target :top
+
+        def top
+          _seq(_lit("a", name: :a), _or(_lit("b"), _call(:letter, _var(:a))))
+        end
+
+        def letter(l)
+          _lit(l)
+        end
+      end
+
+      assert_match g, "ab"
+      assert_match g, "aa"
+    end
   end
 end
