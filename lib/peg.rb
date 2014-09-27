@@ -66,18 +66,18 @@ module Peg
     end
 
     def merge(seq)
-      SequenceContext.new(seq, self)
+      LookupContext.new(seq, self)
     end
   end
 
-  class SequenceContext
+  class LookupContext
     def initialize(seq, parent)
       @seq = seq
       @parent = parent
     end
 
     def merge(seq)
-      SequenceContext.new(seq, self)
+      LookupContext.new(seq, self)
     end
 
     def lookup(name)
