@@ -487,7 +487,7 @@ module Peg
     # This example doesn't look very useful, but `apply` can be used to
     # implement higher order things like a "repeat" function.
     def apply(rule_name, *args)
-      send(rule_name, *args)
+      _call(rule_name, *args)
     end
 
     # `_apply` on the other hand is an internal method meant only to be called
