@@ -351,8 +351,10 @@ module Peg
       @value = nil
     end
 
+    # lookup_context never gets passed down a subrule invocation. It is not a
+    # bug that it doesn't get passed into _apply.
     def match(g, lookup_context = NullContext.new)
-      @value = g.send(@target, *evaluated_args(lookup_context)).match(g, lookup_context)
+      @value = g._apply(@target, *evaluated_args(lookup_context))
 
       if @value && @action
         @value = @action.call(**bindings)
@@ -386,6 +388,28 @@ module Peg
       p.match(@target)
     ensure
       caller.advance(p.pos)
+    end
+  end
+
+  class MemoizationTable
+    def initialize
+      @t = {}
+    end
+
+    def [](rule, input)
+      @t[[rule, input]]
+    end
+
+    def []=(rule, input, result)
+      @t[[rule, input]] = result
+    end
+
+    def fail(rule, input)
+      @t[[rule, input]] = :fail
+    end
+
+    def include?(rule, input)
+      @t.include?([rule, input])
     end
   end
 
@@ -436,6 +460,7 @@ module Peg
     def initialize(input)
       @input = input
       @pos = 0
+      @memo_table = MemoizationTable.new
     end
 
     def match(target = nil)
@@ -445,11 +470,33 @@ module Peg
         raise ParseError, "Target cannot be nil."
       end
 
-      send(target).match(self)
+      _apply(target)
     end
 
+    # Q: Why two apply methods?
+    #
+    # All rules that are "callable" from within another rule have to return
+    # Rule instances. `Apply` is a high level method that is callable from
+    # within another rule. It is never called directly. Inside a rule, it would
+    # be invoked like this:
+    #
+    #   def a_rule(a_rule_to_call)
+    #     _call(:apply, a_rule_to_call)
+    #   end
+    #
+    # This example doesn't look very useful, but `apply` can be used to
+    # implement higher order things like a "repeat" function.
     def apply(rule_name, *args)
-      _call(rule_name, *args)
+      send(rule_name, *args)
+    end
+
+    # `_apply` on the other hand is an internal method meant only to be called
+    # by other classes in this library. It is called from Call#match and
+    # Grammar#match and actually triggers the match of the Rule instance that
+    # the rule_name method returns. It is responsible for handling left
+    # recursive rules.
+    def _apply(rule_name, *args)
+      send(rule_name, *args).match(self)
     end
 
     def foreign(parser_klass, target = nil)

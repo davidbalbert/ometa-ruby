@@ -198,5 +198,23 @@ module Peg
       assert_match g, "ab"
       assert_match g, "aa"
     end
+
+    def test_left_recursion
+      g = Class.new(Grammar) do
+        target :expr
+
+        def expr
+          _or(
+            _seq(_call(:expr, name: :e), _lit("+"), _call(:num, name: :n)) { |e:, n:| [:add, e, n] },
+            _call(:num))
+        end
+
+        def num
+          _one_or_more(_chars("0".."9"), name: :digits) { |digits:| digits.join.to_i }
+        end
+      end
+
+      assert_match g, "10+20+30"
+    end
   end
 end
