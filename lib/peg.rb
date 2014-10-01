@@ -404,12 +404,12 @@ module Peg
       @t[[rule, input]] = result
     end
 
-    def fail(rule, input)
-      @t[[rule, input]] = :fail
-    end
-
     def include?(rule, input)
       @t.include?([rule, input])
+    end
+
+    def inspect
+      @t.inspect
     end
   end
 
@@ -496,7 +496,27 @@ module Peg
     # the rule_name method returns. It is responsible for handling left
     # recursive rules.
     def _apply(rule_name, *args)
-      send(rule_name, *args).match(self)
+      p [rule_name, input, @memo_table]
+      if @memo_table.include?(rule_name, input)
+        return @memo_table[rule_name, input]
+      end
+
+      original_input = input
+      old_pos = @pos
+
+      @memo_table[rule_name, original_input] = nil # start by memoizing a failure
+
+      loop do
+        res = send(rule_name, *args).match(self)
+
+        break unless @pos > old_pos
+
+        old_pos = @pos
+        @memo_table[rule_name, original_input] = res
+      end
+
+      @pos = old_pos
+      @memo_table[rule_name, original_input]
     end
 
     def foreign(parser_klass, target = nil)
