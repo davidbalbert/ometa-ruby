@@ -1,5 +1,35 @@
 require "peg/version"
 
+# l = Literal.new("a", name: :a) { |a:| a.upcase }
+#
+# res = l.match("b") #=> FailResult.new
+# res.matched_string #=> nil
+# res.value => nil
+# res.matched? #=> false
+#
+# res = l.match("a") #=> MatchResult.new("a", l.action)
+# res.matched_string #=> "a"
+# res.value #=> "A"
+# res.matched? #=> true
+#
+# MatchResult#value is memozied so that we don't trigger the action more than
+# once per match.
+#
+# m = Maybe.new(Literal.new("a"), name: :a) { |a:| a.upcase }
+#
+# res = m.match("a") #=> MatchResult.new("a", m.action)
+# res.matched_string #=> "a"
+# res.value #=> "A"
+# res.matched? true
+#
+# res = m.match("b") #=> MaybeFailResult.new
+# res.matched_string #=> nil
+# res.value #=> nil
+# res.matched? #=> true
+#
+# Question: If you have an OMeta parser where the target rule is a maybe, what
+# do you get if it doesn't match anything?
+
 module Peg
   class ParseError < StandardError; end
 
@@ -184,6 +214,8 @@ module Peg
     end
 
     def match(g, lookup_context = NullContext.new)
+      # TODO: This won't duplicate the memo_table, which is almost certainly
+      # bad.
       unless @rule.match(g.dup, lookup_context)
         @value = true
 
@@ -497,6 +529,8 @@ module Peg
     # recursive rules.
     def _apply(rule_name, *args)
       p [rule_name, input, @memo_table]
+
+      # TODO: need to memoize args too!
       if @memo_table.include?(rule_name, input)
         return @memo_table[rule_name, input]
       end
@@ -515,6 +549,8 @@ module Peg
         @memo_table[rule_name, original_input] = res
       end
 
+      # once the loop has broken, we know we've gone one too far. Set our
+      # position back to the last position.
       @pos = old_pos
       @memo_table[rule_name, original_input]
     end
