@@ -1,9 +1,49 @@
 =begin
 CURRENT STATUS
 
+class A < Peg::Parser
+  target :as
+
+  def as
+    lambda do
+      _or(
+        lambda {
+          as = _apply(:as)
+          a = _apply(:literal, "a")
+
+          as + a
+        },
+        lambda {
+          _apply(:literal, "a")
+        }
+      )
+    end
+  end
+end
+
+class ApplyTest < Peg::Parser
+  target :a
+  
+  def a
+    -> { _apply(:b) }
+  end
+  
+  def b
+    -> { _apply(:literal, "hello") }
+  end
+end
+
+class SimpleTest < Peg::Parser
+  target :hello
+  
+  def hello
+    -> { _apply(:literal, "hello") }
+  end
+end
+
 class Anything < Peg::Parser
   target :whatever
-
+  
   def whatever
     -> { _apply(:anything) }
   end
