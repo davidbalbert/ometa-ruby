@@ -33,6 +33,60 @@ require "peg/version"
 module Peg
   class ParseError < StandardError; end
 
+  class MatchResult
+    attr_reader :matched_string, :name
+
+    def initialize(s, action, name: nil)
+      @matched_string, @value = s
+      @action = action
+      @name = name
+    end
+
+    def value
+      @value = @action.call(**@bindings)
+    end
+
+    def bindings
+      if name && value
+        {name => value}
+      else
+        {}
+      end
+    end
+
+    def match?
+      true
+    end
+  end
+
+  class FailResult
+    def matched_string
+      nil
+    end
+
+    def value
+      nil
+    end
+
+    def match?
+      false
+    end
+  end
+
+  class MaybeFailResult
+    def matched_string
+      nil # should this be the empty string instead?
+    end
+
+    def value
+      nil
+    end
+
+    def matched?
+      true
+    end
+  end
+
   class Rule
     attr_accessor :action, :name
     attr_reader :value
@@ -40,6 +94,7 @@ module Peg
     def initialize(name: nil, &action)
       @name = name
       @action = action
+      @value = nil
     end
 
     def bindings
@@ -63,20 +118,26 @@ module Peg
     def initialize(s, **options, &action)
       super(**options, &action)
       @s = s
-      @value = nil
     end
 
     def match(g, lookup_context = NullContext.new)
-      return nil unless g.input.start_with?(@s)
+      return FailResult.new unless g.input.start_with?(@s)
 
       g.advance(@s.size)
-      @value = @s
 
-      if @action
-        @value = @action.call(**bindings)
+      MatchResult.new(@s, @action, bindings)
+    end
+
+    def bindings
+      if @name
+        {@name => @s}
+      else
+        {}
       end
+    end
 
-      @value
+    def to_s
+      @s
     end
   end
 
@@ -119,25 +180,39 @@ module Peg
     def initialize(*rules, **options, &action)
       super(**options, &action)
       @rules = rules
-      @value = nil
     end
 
     def match(g, lookup_context = NullContext.new)
-      @rules.each do |rule|
-        @value = rule.match(g, lookup_context.merge(self))
+      #print "#{self} -> "
 
-        return nil unless @value
+      results = []
+      @rules.each do |rule|
+        res = rule.match(g, lookup_context.merge(self))
+
+        if res.match?
+          results << res
+          #print "#{@value.inspect} "
+        else
+          #puts "(fail)"
+          return FailResult.new
+        end
       end
 
       if @action
         @value = @action.call(**bindings_of_children)
       end
 
+      #puts @value.inspect
+
       @value
     end
 
     def lookup(name)
       bindings_of_children[name]
+    end
+
+    def to_s
+      "seq(#{@rules.map(&:to_s).join(", ")})"
     end
 
     private
@@ -395,6 +470,10 @@ module Peg
       @value
     end
 
+    def to_s
+      "call(#{@target})"
+    end
+
     private
 
     def evaluated_args(context)
@@ -528,7 +607,7 @@ module Peg
     # the rule_name method returns. It is responsible for handling left
     # recursive rules.
     def _apply(rule_name, *args)
-      p [rule_name, input, @memo_table]
+      #p [rule_name, input, @memo_table]
 
       # TODO: need to memoize args too!
       if @memo_table.include?(rule_name, input)
@@ -536,22 +615,29 @@ module Peg
       end
 
       original_input = input
-      old_pos = @pos
+
+      original_pos = last_pos = @pos
+      longest_match_length = 0
 
       @memo_table[rule_name, original_input] = nil # start by memoizing a failure
 
       loop do
         res = send(rule_name, *args).match(self)
 
-        break unless @pos > old_pos
+        length_of_match = @pos - original_pos
 
-        old_pos = @pos
+        break if length_of_match <= longest_match_length
+
+        longest_match_length = length_of_match
+
+        last_pos = @pos
+        @pos = original_pos
         @memo_table[rule_name, original_input] = res
       end
 
       # once the loop has broken, we know we've gone one too far. Set our
       # position back to the last position.
-      @pos = old_pos
+      @pos = last_pos
       @memo_table[rule_name, original_input]
     end
 
