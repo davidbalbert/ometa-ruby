@@ -1,6 +1,75 @@
 =begin
 CURRENT STATUS
 
+SimplerMath doesn't work.
+
+It works for num, but not for expr
+
+class SimplerMath < Peg::Parser
+  target :expr
+
+  def expr
+    -> do
+      _or(
+        -> do
+          e = _apply(:expr)
+          _apply(:literal, "+")
+          n = _apply(:num)
+
+          [:add, e, n]
+        end,
+        -> do
+          _apply(:num)
+        end
+      )
+    end
+  end
+
+  def num
+    -> do
+      _apply(:anything)
+    end
+  end
+end
+
+class SomeMath < Peg::Parser
+  target :expr
+
+  def expr
+    -> do
+      _or(
+        -> do
+          e = _apply(:expr)
+          _apply(:literal, "+")
+          n = _apply(:num)
+
+          [:add, e, n]
+        end,
+        -> do
+          _apply(:num)
+        end
+      )
+    end
+  end
+
+  def num
+    -> do
+      digits = _one_or_more(-> { _apply(:digit) })
+
+      digits.join.to_i
+    end
+  end
+
+  def digit
+    -> do
+      c = _apply(:char)
+      _pred(("0".."9").include?(c))
+
+      c
+    end
+  end
+end
+
 class A < Peg::Parser
   target :as
 
@@ -152,24 +221,26 @@ module Peg
         end
       end
 
-      original_input = @input
+      original_input, remaining_input = @input
       longest_match_size = 0
+      res = nil
 
       @memo_table[rule_name, args, original_input] = [nil, @input] # start by memoizing a failure
 
       loop do
         res = _call_rule(send(rule_name, *args))
 
+        remaining_input = @input
+
         match_size = original_input.size - @input.size
 
         break if match_size <= longest_match_size
 
         longest_match_size = match_size
-        @memo_table[rule_name, args, original_input] = [res, @input]
         @input = original_input
-      end
 
-      res, remaining_input = @memo_table[rule_name, args, original_input]
+        @memo_table[rule_name, args, original_input] = [res, remaining_input]
+      end
 
       if res
         @input = remaining_input
@@ -190,6 +261,15 @@ module Peg
         else
           throw(:match_failed, nil)
         end
+      end
+    end
+
+    def char
+      lambda do
+        c = _apply(:anything)
+        _pred(c.is_a?(String))
+
+        c
       end
     end
 
@@ -219,6 +299,14 @@ module Peg
       end
     end
 
+    def _pred(expr)
+      if expr
+        true
+      else
+        throw(:match_failed, nil)
+      end
+    end
+
     def _or(*rules)
       original_input = @input
       res = nil
@@ -232,6 +320,30 @@ module Peg
       end
 
       throw(:match_failed, nil)
+    end
+
+    def _zero_or_more(rule)
+      results = []
+
+      loop do
+        res = _call_rule(rule)
+
+        break unless res
+
+        results << res
+      end
+
+      results
+    end
+
+    def _one_or_more(rule)
+      res = _call_rule(rule)
+
+      if res.nil?
+        throw(:match_failed, nil)
+      end
+
+      [res] + _zero_or_more(rule)
     end
 
     def _call_rule(rule)
