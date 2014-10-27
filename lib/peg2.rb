@@ -142,13 +142,18 @@ module Peg
     def _apply(rule_name, *args)
       if @memo_table.include?(rule_name, args, @input)
         res, remaining_input = @memo_table[rule_name, args, @input]
-        @input = remaining_input
-        return res
+
+        if res
+          @input = remaining_input
+
+          return res
+        else
+          throw(:match_failed, nil)
+        end
       end
 
       original_input = @input
       longest_match_size = 0
-      res = nil
 
       @memo_table[rule_name, args, original_input] = [nil, @input] # start by memoizing a failure
 
