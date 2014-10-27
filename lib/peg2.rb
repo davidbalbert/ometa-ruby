@@ -113,8 +113,6 @@ module Peg
     end
 
     def _apply(rule_name, *args)
-      puts "_apply(#{rule_name.inspect}, #{args.inspect})"
-
       if @memo_table.include?(rule_name, args, @input)
         return @memo_table[rule_name, args, @input]
       end
@@ -126,7 +124,6 @@ module Peg
       @memo_table[rule_name, args, original_input] = nil # start by memoizing a failure
 
       loop do
-        p [rule_name, @input, @memo_table]
         res = _call_rule(send(rule_name, *args))
 
         match_size = original_input.size - @input.size
@@ -151,8 +148,10 @@ module Peg
     def anything
       lambda do
         unless @input.empty?
-          puts "returning #{@input[0]}"
-          @input[0]
+          c = @input[0]
+          @input = @input[1..-1]
+
+          c
         else
           throw(:match_failed, nil)
         end
