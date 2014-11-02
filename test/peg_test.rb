@@ -4,217 +4,202 @@ require 'peg'
 
 module Peg
   class PegTest < Minitest::Test
-    def assert_peg_match(peg, input)
-      assert_match peg, Grammar.new(input)
+    def test_anything
+      anything = Class.new(Peg::Parser) do
+        target :whatever
+
+        def whatever
+          -> { _apply(:anything) }
+        end
+      end
+
+      assert_match anything, "a"
+      assert_match anything, "ab"
+      refute_match anything, ""
     end
 
-    def refute_peg_match(peg, input)
-      refute_match peg, Grammar.new(input)
+    def test_exactly
+      exactly = Class.new(Peg::Parser) do
+        target :r
+
+        def r
+          -> { _apply(:exactly, "a") }
+        end
+      end
+
+      assert_match exactly, "a"
+      assert_match exactly, "ab"
+      refute_match exactly, "b"
+      refute_match exactly, ""
     end
 
-    def test_literal
-      assert_peg_match Literal.new("hello"), "hello"
-      assert_peg_match Literal.new("hello"), "hello world"
-      refute_peg_match Literal.new("hello"), "goodbye"
-      refute_peg_match Literal.new("hello world"), "hello"
+    def test_end
+      the_end = Class.new(Peg::Parser) do
+        target :end
+      end
+
+      assert_match the_end, ""
+      refute_match the_end, "a"
     end
 
-    def test_sequence_peg
-      peg = Sequence.new(Literal.new("a"), Literal.new("b"))
-      assert_peg_match peg, "ab"
-      refute_peg_match peg, "ac"
+    def test_empty
+      empty = Class.new(Peg::Parser) do
+        target :empty
+      end
+
+      assert_match empty, ""
+      assert_match empty, "a"
     end
 
-    def test_ordered_choice
-      peg = OrderedChoice.new(Literal.new("a"), Literal.new("b"), Literal.new("ab"))
-      assert_peg_match peg, "a"
-      assert_peg_match peg, "b"
-      assert_peg_match peg, "ab"
-      assert_peg_match peg, "abc"
-      refute_peg_match peg, "cde"
-    end
+    def test_anything_or_empty
+      anything_or_empty = Class.new(Peg::Parser) do
+        target :r
 
-    def test_any
-      assert_peg_match Any.new, "a"
-      refute_peg_match Any.new, ""
-    end
+        def r
+          -> do
+            _or(
+              -> { _apply(:anything) },
+              -> { _apply(:empty) }
+            )
+          end
+        end
+      end
 
-    def test_not
-      assert_peg_match Not.new(Any.new), ""
-      assert_peg_match Not.new(Not.new(Any.new)), "a"
+      assert_match anything_or_empty, ""
+      assert_match anything_or_empty, "a"
     end
 
     def test_lookahead
-      peg = Lookahead.new(Literal.new("ab"))
-      assert_peg_match peg, "abc"
-      refute_peg_match peg, "bbc"
-    end
+      lookahead = Class.new(Peg::Parser) do
+        target :r
 
-    def test_maybe
-      peg = Maybe.new(Literal.new("a"))
-      assert_peg_match peg, "a"
-      assert_peg_match peg, "b"
-    end
-
-    def test_zero_or_more
-      peg = ZeroOrMore.new(Literal.new("a"))
-      assert_peg_match peg, ""
-      assert_peg_match peg, "a"
-      assert_peg_match peg, "aa"
-    end
-
-    def test_one_or_more
-      peg = OneOrMore.new(Literal.new("a"))
-      refute_peg_match peg, ""
-      assert_peg_match peg, "a"
-      assert_peg_match peg, "aa"
-    end
-
-    def test_grouping
-      assert_peg_match Grouping.new(Literal.new("abc")), "abc"
-    end
-
-    def test_chars
-      peg = Characters.new(?a, ?b, ?c)
-      assert_peg_match peg, "a"
-      assert_peg_match peg, "b"
-      assert_peg_match peg, "c"
-      refute_peg_match peg, "d"
-    end
-
-    def test_grammar
-      g = Class.new(Grammar) do
-        target :top
-
-        def top
-          _seq(_lit("hello"), _lit("world"))
+        def r
+          -> do
+            _lookahead(-> { _apply(:exactly, "a") })
+            _apply(:anything)
+          end
         end
       end
 
-      assert_match g, "helloworld"
-      assert_match g, "helloworldfoo"
-      refute_match g, "hello"
+      assert_match lookahead, "a"
+      refute_match lookahead, "b"
     end
 
-    def test_captured_rule
-      g = Class.new(Grammar) do
-        target :top
+    def test_literal
+      literal = Class.new(Peg::Parser) do
+        target :r
 
-        def top
-          _seq(_any(name: :x), _lit("b"), _any(name: :y)) { |x:, y:| (x + y).upcase }
+        def r
+          -> { _apply(:literal, "hello") }
         end
       end
 
-      assert_equal "AC", g.match("abc")
+      assert_match literal, "hello"
+      assert_match literal, "hellothere"
+      refute_match literal, "hell"
+      refute_match literal, ""
+    end
+
+    def test_one_after_another
+      one_after_another = Class.new(Peg::Parser) do
+        target :r
+
+        def r
+          -> do
+            _apply(:exactly, "a")
+            _apply(:exactly, "b")
+          end
+        end
+      end
+
+      assert_match one_after_another, "ab"
+      assert_match one_after_another, "abc"
+      refute_match one_after_another, "ac"
+      refute_match one_after_another, "a"
     end
 
     def test_apply
-      g = Class.new(Grammar) do
-        target :top
+      apply = Class.new(Peg::Parser) do
+        target :a
 
-        def top
-          _call(:apply, :hello)
+        def a
+          -> { _apply(:b) }
         end
 
-        def hello
-          _lit("hello")
+        def b
+          -> { _apply(:literal, "hello") }
         end
       end
 
-      assert_match g, "hello"
+      assert_match apply, "hello"
+      refute_match apply, "goodbye"
     end
 
-    def test_variable_lookup
-      g = Class.new(Grammar) do
-        target :top
+    def test_or
+      either_or = Class.new(Peg::Parser) do
+        target :r
 
-        def top
-          _seq(_lit("a", name: :var), _call(:lit_with_arg, _var(:var)))
-        end
-
-        def lit_with_arg(a)
-          _lit(a)
+        def r
+          -> do
+            _or(-> { _apply(:exactly, "a") },
+                -> { _apply(:exactly, "b") })
+          end
         end
       end
 
-      assert_match g, "aa"
+      assert_match either_or, "a"
+      assert_match either_or, "b"
+      refute_match either_or, "c"
     end
 
-    def test_foreign
-      g1 = Class.new(Grammar) do
-        target :top
+    def test_right_recursion
+      right = Class.new(Peg::Parser) do
+        target :xs
 
-        def top
-          _lit("abc")
+        def xs
+          -> do
+            _or(
+              -> do
+                _apply(:exactly, "x")
+                _apply(:xs)
+              end,
+              -> do
+                _apply(:empty)
+              end
+            )
+          end
         end
       end
 
-      g2 = Class.new(Grammar) do
-        target :top
-
-        define_method :top do
-          _call(:foreign, g1)
-        end
-      end
-
-      assert_match g2, "abc"
-      refute_match g2, "ab"
+      assert_match right, ""
+      assert_match right, "x"
+      assert_match right, "xx"
+      assert_match right, "xxy"
     end
+  end
 
-    def test_super
-      g1 = Class.new(Grammar) do
-        target :abc
+  def test_left_recursion
+    left = Class.new(Peg::Parser) do
+      target :xs
 
-        def abc
-          _lit("abc")
-        end
-      end
-
-      g2 = Class.new(g1) do
-        target :abc
-
-        def abc
-          _or(_lit("ABC"), super)
-        end
-      end
-
-      assert_match g2, "abc"
-      assert_match g2, "ABC"
-    end
-
-    def test_nested_variable_lookup
-      g = Class.new(Grammar) do
-        target :top
-
-        def top
-          _seq(_lit("a", name: :a), _or(_lit("b"), _call(:letter, _var(:a))))
-        end
-
-        def letter(l)
-          _lit(l)
-        end
-      end
-
-      assert_match g, "ab"
-      assert_match g, "aa"
-    end
-
-    def test_left_recursion
-      g = Class.new(Grammar) do
-        target :expr
-
-        def expr
+      def xs
+        -> do
           _or(
-            _seq(_call(:expr, name: :e), _lit("+"), _call(:num, name: :n)) { |e:, n:| [:add, e, n] },
-            _call(:num))
-        end
-
-        def num
-          _one_or_more(_chars("0".."9"), name: :digits) { |digits:| digits.join.to_i }
+            -> do
+              _apply(:xs)
+              apply(:exactly, "x")
+            end,
+            -> do
+              _apply(:empty)
+            end
+          )
         end
       end
-
-      assert_match g, "10+20+30"
     end
+
+    assert_match left, ""
+    assert_match left, "x"
+    assert_match left, "xx"
+    assert_match left, "xxy"
   end
 end

@@ -1,522 +1,116 @@
-require "peg/version"
+=begin
+CURRENT STATUS
 
-# l = Literal.new("a", name: :a) { |a:| a.upcase }
-#
-# res = l.match("b") #=> FailResult.new
-# res.matched_string #=> nil
-# res.value => nil
-# res.matched? #=> false
-#
-# res = l.match("a") #=> MatchResult.new("a", l.action)
-# res.matched_string #=> "a"
-# res.value #=> "A"
-# res.matched? #=> true
-#
-# MatchResult#value is memozied so that we don't trigger the action more than
-# once per match.
-#
-# m = Maybe.new(Literal.new("a"), name: :a) { |a:| a.upcase }
-#
-# res = m.match("a") #=> MatchResult.new("a", m.action)
-# res.matched_string #=> "a"
-# res.value #=> "A"
-# res.matched? true
-#
-# res = m.match("b") #=> MaybeFailResult.new
-# res.matched_string #=> nil
-# res.value #=> nil
-# res.matched? #=> true
-#
-# Question: If you have an OMeta parser where the target rule is a maybe, what
-# do you get if it doesn't match anything?
+SimplerMath doesn't work.
+
+It works for num, but not for expr
+
+class SimplerMath < Peg::Parser
+  target :expr
+
+  def expr
+    -> do
+      _or(
+        -> do
+          e = _apply(:expr)
+          _apply(:literal, "+")
+          n = _apply(:num)
+
+          [:add, e, n]
+        end,
+        -> do
+          _apply(:num)
+        end
+      )
+    end
+  end
+
+  def num
+    -> do
+      _apply(:anything)
+    end
+  end
+end
+
+class SomeMath < Peg::Parser
+  target :expr
+
+  def expr
+    -> do
+      _or(
+        -> do
+          e = _apply(:expr)
+          _apply(:literal, "+")
+          n = _apply(:num)
+
+          [:add, e, n]
+        end,
+        -> do
+          _apply(:num)
+        end
+      )
+    end
+  end
+
+  def num
+    -> do
+      digits = _one_or_more(-> { _apply(:digit) })
+
+      digits.join.to_i
+    end
+  end
+
+  def digit
+    -> do
+      c = _apply(:char)
+      _pred(("0".."9").include?(c))
+
+      c
+    end
+  end
+end
+
+class A < Peg::Parser
+  target :as
+
+  def as
+    lambda do
+      _or(
+        lambda {
+          as = _apply(:as)
+          a = _apply(:literal, "a")
+
+          as + a
+        },
+        lambda {
+          _apply(:literal, "a")
+        }
+      )
+    end
+  end
+end
+
+=end
+
 
 module Peg
-  class ParseError < StandardError; end
-
-  class MatchResult
-    attr_reader :matched_string, :name
-
-    def initialize(s, action, name: nil)
-      @matched_string, @value = s
-      @action = action
-      @name = name
-    end
-
-    def value
-      @value = @action.call(**@bindings)
-    end
-
-    def bindings
-      if name && value
-        {name => value}
-      else
-        {}
-      end
-    end
-
-    def match?
-      true
-    end
-  end
-
-  class FailResult
-    def matched_string
-      nil
-    end
-
-    def value
-      nil
-    end
-
-    def match?
-      false
-    end
-  end
-
-  class MaybeFailResult
-    def matched_string
-      nil # should this be the empty string instead?
-    end
-
-    def value
-      nil
-    end
-
-    def matched?
-      true
-    end
-  end
-
-  class Rule
-    attr_accessor :action, :name
-    attr_reader :value
-
-    def initialize(name: nil, &action)
-      @name = name
-      @action = action
-      @value = nil
-    end
-
-    def bindings
-      if @name && @value
-        {@name => @value}
-      else
-        {}
-      end
-    end
-
-    def =~(other)
-      match(other)
-    end
-
-    def ===(other)
-      match(other)
-    end
-  end
-
-  class Literal < Rule
-    def initialize(s, **options, &action)
-      super(**options, &action)
-      @s = s
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      return FailResult.new unless g.input.start_with?(@s)
-
-      g.advance(@s.size)
-
-      MatchResult.new(@s, @action, bindings)
-    end
-
-    def bindings
-      if @name
-        {@name => @s}
-      else
-        {}
-      end
-    end
-
-    def to_s
-      @s
-    end
-  end
-
-  class VariableLookup
-    def initialize(name)
-      @name = name
-    end
-
-    def lookup(context)
-      context.lookup(@name)
-    end
-  end
-
-  class NullContext
-    def lookup(name)
-      nil
-    end
-
-    def merge(seq)
-      LookupContext.new(seq, self)
-    end
-  end
-
-  class LookupContext
-    def initialize(seq, parent)
-      @seq = seq
-      @parent = parent
-    end
-
-    def merge(seq)
-      LookupContext.new(seq, self)
-    end
-
-    def lookup(name)
-      @seq.lookup(name) || @parent.lookup(name)
-    end
-  end
-
-  class Sequence < Rule
-    def initialize(*rules, **options, &action)
-      super(**options, &action)
-      @rules = rules
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      #print "#{self} -> "
-
-      results = []
-      @rules.each do |rule|
-        res = rule.match(g, lookup_context.merge(self))
-
-        if res.match?
-          results << res
-          #print "#{@value.inspect} "
-        else
-          #puts "(fail)"
-          return FailResult.new
-        end
-      end
-
-      if @action
-        @value = @action.call(**bindings_of_children)
-      end
-
-      #puts @value.inspect
-
-      @value
-    end
-
-    def lookup(name)
-      bindings_of_children[name]
-    end
-
-    def to_s
-      "seq(#{@rules.map(&:to_s).join(", ")})"
-    end
-
-    private
-
-    def bindings_of_children
-      if @value
-        @rules.map(&:bindings).reduce(:merge)
-      else
-        {}
-      end
-    end
-  end
-
-  class OrderedChoice < Rule
-    def initialize(*rules, **options, &action)
-      super(**options, &action)
-      @rules = rules
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      @rules.each do |rule|
-        @value = rule.match(g, lookup_context)
-
-        if @value
-          @matched_rule = rule
-          break
-        end
-      end
-
-      if @value && @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-
-    private
-
-    def bindings_of_children
-      if @value
-        @matched_rule.bindings
-      else
-        {}
-      end
-    end
-  end
-
-  class Any < Rule
-    def initialize(**options, &action)
-      super(**options, &action)
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      unless g.input.empty?
-        @value = g.input[0]
-        g.advance(1)
-
-        if @action
-          @value = @action.call(**bindings)
-        end
-
-        @value
-      end
-    end
-  end
-
-  class Not < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = rule
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      # TODO: This won't duplicate the memo_table, which is almost certainly
-      # bad.
-      unless @rule.match(g.dup, lookup_context)
-        @value = true
-
-        if @action
-          @value = @action.call(**bindings)
-        end
-
-        @value
-      end
-    end
-  end
-
-  class Lookahead < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = Not.new(Not.new(rule))
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      @value = @rule.match(g, lookup_context)
-
-      if @value && @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-  end
-
-  class Maybe < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = rule
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      @value = @rule.match(g, lookup_context)
-
-      if @action
-        @value = @action.call(**bindings)
-      end
-
-      # TODO: :not_matched is a gross hack, especially because if I want this
-      # to be an Ometa implementation, we'll need to be able to pattern match
-      # on symbols. A cleaner thing to do would be to rewrite this interface so
-      # that the result and the state are returned. This way we can return the
-      # old result if maybe fails but still succeeds.
-      #
-      # Another alternative would be to return a tuple [value, matched] so that
-      # here we can return [nil, true] to say that we didn't get anything but
-      # we still matched.
-      @value || :maybe_not_matched
-    end
-
-    def bindings
-      if @name
-        {@name => @value}
-      else
-        {}
-      end
-    end
-  end
-
-  class ZeroOrMore < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = rule
-      @value = []
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      loop do
-        val = @rule.match(g, lookup_context)
-        break unless val
-
-        @value << val
-      end
-
-      if @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-  end
-
-  class OneOrMore < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = rule
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      val = @rule.match(g, lookup_context)
-      return nil unless val
-
-      @value = [val]
-
-      until val.nil?
-        val = @rule.match(g)
-        @value << val if val
-      end
-
-      if @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-  end
-
-  class Grouping < Rule
-    def initialize(rule, **options, &action)
-      super(**options, &action)
-      @rule = rule
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      @value = @rule.match(g, lookup_context)
-
-      if @value && @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-  end
-
-  class Characters < Rule
-    def initialize(*chars, **options, &action)
-      super(**options, &action)
-
-      chars = chars.map do |c|
-        if c.respond_to?(:to_a)
-          c.to_a
-        else
-          c
-        end
-      end.flatten
-
-      @rule = OrderedChoice.new(*chars.map { |c| Literal.new(c) })
-      @value = nil
-    end
-
-    def match(g, lookup_context = NullContext.new)
-      @value = @rule.match(g, lookup_context)
-
-      if @value && @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-  end
-
-  class Call < Rule
-    def initialize(target, *args, **options, &action)
-      super(**options, &action)
-      @target = target
-      @args = args
-      @value = nil
-    end
-
-    # lookup_context never gets passed down a subrule invocation. It is not a
-    # bug that it doesn't get passed into _apply.
-    def match(g, lookup_context = NullContext.new)
-      @value = g._apply(@target, *evaluated_args(lookup_context))
-
-      if @value && @action
-        @value = @action.call(**bindings)
-      end
-
-      @value
-    end
-
-    def to_s
-      "call(#{@target})"
-    end
-
-    private
-
-    def evaluated_args(context)
-      @args.map do |a|
-        if a.is_a? VariableLookup
-          a.lookup(context)
-        else
-          a
-        end
-      end
-    end
-  end
-
-  class Foreign
-    def initialize(klass, target)
-      @klass = klass
-      @target = target || klass.target
-    end
-
-    def match(caller, lookup_context = NullContext.new)
-      p = @klass.new(caller.input)
-
-      p.match(@target)
-    ensure
-      caller.advance(p.pos)
-    end
-  end
+  class PegError < StandardError; end
 
   class MemoizationTable
     def initialize
       @t = {}
     end
 
-    def [](rule, input)
-      @t[[rule, input]]
+    def [](rule, args, input)
+      @t[[rule, args, input]]
     end
 
-    def []=(rule, input, result)
-      @t[[rule, input]] = result
+    def []=(rule, args, input, result)
+      @t[[rule, args, input]] = result
     end
 
-    def include?(rule, input)
-      @t.include?([rule, input])
+    def include?(rule, args, input)
+      @t.include?([rule, args, input])
     end
 
     def inspect
@@ -524,7 +118,7 @@ module Peg
     end
   end
 
-  class Grammar
+  class Parser
     class << self
       def target(target = nil)
         if target
@@ -540,37 +134,10 @@ module Peg
 
       alias =~ match
       alias === match
-
-      private
-
-      def define_proxy(*names, **explicit_mappings)
-        default_mappings = names.map do |name|
-          [name, Peg.const_get(name[1..-1].to_s.split("_").map(&:capitalize).join)]
-        end.to_h
-
-        all_mappings = default_mappings.merge(explicit_mappings)
-
-        all_mappings.each do |name, klass|
-          define_method :"#{name}" do |*args, &action|
-            klass.new(*args, &action)
-          end
-        end
-      end
     end
-
-    define_proxy :_any, :_not, :_maybe, :_zero_or_more, :_one_or_more, :_call,
-      _look: Lookahead,
-      _lit: Literal,
-      _seq: Sequence,
-      _or: OrderedChoice,
-      _group: Grouping,
-      _chars: Characters
-
-    attr_reader :pos
 
     def initialize(input)
       @input = input
-      @pos = 0
       @memo_table = MemoizationTable.new
     end
 
@@ -581,88 +148,186 @@ module Peg
         raise ParseError, "Target cannot be nil."
       end
 
-      _apply(target)
+      catch :match_failed do
+        _apply(target)
+      end
     end
 
-    # Q: Why two apply methods?
-    #
-    # All rules that are "callable" from within another rule have to return
-    # Rule instances. `Apply` is a high level method that is callable from
-    # within another rule. It is never called directly. Inside a rule, it would
-    # be invoked like this:
-    #
-    #   def a_rule(a_rule_to_call)
-    #     _call(:apply, a_rule_to_call)
-    #   end
-    #
-    # This example doesn't look very useful, but `apply` can be used to
-    # implement higher order things like a "repeat" function.
-    def apply(rule_name, *args)
-      _call(rule_name, *args)
-    end
-
-    # `_apply` on the other hand is an internal method meant only to be called
-    # by other classes in this library. It is called from Call#match and
-    # Grammar#match and actually triggers the match of the Rule instance that
-    # the rule_name method returns. It is responsible for handling left
-    # recursive rules.
     def _apply(rule_name, *args)
-      #p [rule_name, input, @memo_table]
+      if @memo_table.include?(rule_name, args, @input)
+        res, remaining_input = @memo_table[rule_name, args, @input]
 
-      # TODO: need to memoize args too!
-      if @memo_table.include?(rule_name, input)
-        return @memo_table[rule_name, input]
+        if res
+          @input = remaining_input
+
+          return res
+        else
+          throw(:match_failed, nil)
+        end
       end
 
-      original_input = input
+      original_input, remaining_input = @input
+      longest_match_size = 0
+      res = nil
 
-      original_pos = last_pos = @pos
-      longest_match_length = 0
-
-      @memo_table[rule_name, original_input] = nil # start by memoizing a failure
+      @memo_table[rule_name, args, original_input] = [nil, @input] # start by memoizing a failure
 
       loop do
-        res = send(rule_name, *args).match(self)
+        rule = send(rule_name, *args)
 
-        length_of_match = @pos - original_pos
+        unless rule.is_a?(Proc)
+          raise PegError, "`#{rule_name}' must return a Proc"
+        end
 
-        break if length_of_match <= longest_match_length
+        res = _call_rule(rule)
 
-        longest_match_length = length_of_match
+        remaining_input = @input
 
-        last_pos = @pos
-        @pos = original_pos
-        @memo_table[rule_name, original_input] = res
+        match_size = original_input.size - @input.size
+
+        break if match_size <= longest_match_size
+
+        longest_match_size = match_size
+        @input = original_input
+
+        @memo_table[rule_name, args, original_input] = [res, remaining_input]
       end
 
-      # once the loop has broken, we know we've gone one too far. Set our
-      # position back to the last position.
-      @pos = last_pos
-      @memo_table[rule_name, original_input]
-    end
+      if res
+        @input = remaining_input
 
-    def foreign(parser_klass, target = nil)
-      Foreign.new(parser_klass, target)
+        res
+      else
+        throw(:match_failed, nil)
+      end
     end
 
     def anything
-      _any
+      ->  do
+        unless @input.empty?
+          c = @input[0]
+          @input = @input[1..-1]
+
+          c
+        else
+          throw(:match_failed, nil)
+        end
+      end
     end
 
     def end
-      _not(_any)
+      -> do
+        _not(-> { _apply(:anything) })
+      end
     end
 
-    def _var(name)
-      VariableLookup.new(name)
+    def empty
+      -> { true }
     end
 
-    def input
-      @input[@pos..-1]
+    def char
+      -> do
+        c = _apply(:anything)
+        _pred(c.is_a?(String))
+
+        c
+      end
     end
 
-    def advance(n)
-      @pos += n
+    def exactly(c)
+      ->  do
+        if c == _apply(:anything)
+          c
+        else
+          throw(:match_failed, nil)
+        end
+      end
+    end
+
+    def sequence(cs)
+      ->  do
+        cs.each_char do |c|
+          _apply(:exactly, c)
+        end
+
+        cs
+      end
+    end
+
+    def literal(s)
+      ->  do
+        _apply(:sequence, s)
+      end
+    end
+
+    def _not(rule)
+      original_input = @input
+
+      res = _call_rule(rule)
+
+      if res.nil?
+        @input = original_input
+        true
+      else
+        throw(:match_failed, nil)
+      end
+    end
+
+    def _lookahead(rule)
+      _not(-> { _not(rule) })
+    end
+
+    def _pred(expr)
+      if expr
+        true
+      else
+        throw(:match_failed, nil)
+      end
+    end
+
+    def _or(*rules)
+      original_input = @input
+      res = nil
+
+      rules.each do |rule|
+        res = _call_rule(rule)
+
+        return res if res
+
+        @input = original_input
+      end
+
+      throw(:match_failed, nil)
+    end
+
+    def _zero_or_more(rule)
+      results = []
+
+      loop do
+        res = _call_rule(rule)
+
+        break unless res
+
+        results << res
+      end
+
+      results
+    end
+
+    def _one_or_more(rule)
+      res = _call_rule(rule)
+
+      if res.nil?
+        throw(:match_failed, nil)
+      end
+
+      [res] + _zero_or_more(rule)
+    end
+
+    def _call_rule(rule)
+      catch :match_failed do
+        rule.call
+      end
     end
   end
 end
