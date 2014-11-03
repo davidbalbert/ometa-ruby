@@ -179,10 +179,10 @@ module Peg
         end
       end
 
-      #assert_ometa_match right, "", with_remaining_input: ""
+      assert_ometa_match right, "", with_remaining_input: ""
       assert_ometa_match right, "x", with_remaining_input: ""
-      #assert_ometa_match right, "xx", with_remaining_input: ""
-      #assert_ometa_match right, "xxy", with_remaining_input: "y"
+      assert_ometa_match right, "xx", with_remaining_input: ""
+      assert_ometa_match right, "xxy", with_remaining_input: "y"
     end
 
     def test_left_recursion
@@ -194,7 +194,7 @@ module Peg
             _or(
               -> do
                 _apply(:xs)
-                apply(:exactly, "x")
+                _apply(:exactly, "x")
               end,
               -> do
                 _apply(:empty)

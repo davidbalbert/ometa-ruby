@@ -166,8 +166,7 @@ module Peg
       end
 
       original_input, remaining_input = @input
-      longest_match_size = 0
-      res = nil
+      longest_match_size = -1
 
       @memo_table[rule_name, args, original_input] = [nil, @input] # start by memoizing a failure
 
@@ -184,13 +183,15 @@ module Peg
 
         match_size = original_input.size - @input.size
 
-        break if match_size <= longest_match_size
+        break if res.nil? || match_size <= longest_match_size
 
         longest_match_size = match_size
         @input = original_input
 
         @memo_table[rule_name, args, original_input] = [res, remaining_input]
       end
+
+      res, remaining_input = @memo_table[rule_name, args, original_input]
 
       if res
         @input = remaining_input
