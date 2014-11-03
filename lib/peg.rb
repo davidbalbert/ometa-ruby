@@ -92,7 +92,6 @@ end
 
 =end
 
-
 module Peg
   class PegError < StandardError; end
 
@@ -141,7 +140,7 @@ module Peg
       @memo_table = MemoizationTable.new
     end
 
-    def match(target = nil)
+    def match(target = self.class.target)
       if target.nil? && self.class.target.nil?
         raise ParseError, "Target cannot be nil. Either specify a target or set a default one using the `target' class method."
       elsif target.nil?
