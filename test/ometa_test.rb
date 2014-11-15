@@ -5,12 +5,10 @@ require 'ometa'
 module OMeta
   class OMetaTest < Minitest::Test
     def assert_ometa_match(parser, input, with_remaining_input:)
-      p = parser.new(input)
-      assert p.match, "Parser didn't match #{input.inspect}"
+      p = parser.new
+      assert p.match(input), "Parser didn't match #{input.inspect}"
 
-      remaining_input = p.instance_variable_get(:@input)
-
-      assert remaining_input == with_remaining_input, "Expected remaining input to be #{with_remaining_input.inspect} but #{remaining_input.inspect} remains."
+      assert p.input_after_match == with_remaining_input, "Expected remaining input to be #{with_remaining_input.inspect} but #{p.input_after_match.inspect} remains."
     end
 
     def test_anything
@@ -18,7 +16,7 @@ module OMeta
         target :whatever
 
         def whatever
-          -> { _apply(:anything) }
+          ->(input) { _apply(input, :anything) }
         end
       end
 
@@ -32,7 +30,7 @@ module OMeta
         target :r
 
         def r
-          -> { _apply(:exactly, "a") }
+          ->(input) { _apply(input, :exactly, "a") }
         end
       end
 
@@ -65,10 +63,11 @@ module OMeta
         target :r
 
         def r
-          -> do
+          ->(input) do
             _or(
-              -> { _apply(:anything) },
-              -> { _apply(:empty) }
+              input,
+              ->(input) { _apply(input, :anything) },
+              ->(input) { _apply(input, :empty) }
             )
           end
         end
@@ -83,8 +82,8 @@ module OMeta
         target :r
 
         def r
-          -> do
-            _lookahead(-> { _apply(:exactly, "a") })
+          ->(input) do
+            _lookahead(input, ->(input) { _apply(input, :exactly, "a") })
           end
         end
       end
@@ -98,7 +97,7 @@ module OMeta
         target :r
 
         def r
-          -> { _apply(:literal, "hello") }
+          ->(input) { _apply(input, :literal, "hello") }
         end
       end
 
@@ -113,9 +112,14 @@ module OMeta
         target :r
 
         def r
-          -> do
-            _apply(:exactly, "a")
-            _apply(:exactly, "b")
+          ->(input) do
+            res, input = _apply(input, :exactly, "a")
+
+            if res == OMeta::FAIL
+              return [res, input]
+            end
+
+            _apply(input, :exactly, "b")
           end
         end
       end
@@ -131,11 +135,11 @@ module OMeta
         target :a
 
         def a
-          -> { _apply(:b) }
+          ->(input) { _apply(input, :b) }
         end
 
         def b
-          -> { _apply(:literal, "hello") }
+          ->(input) { _apply(input, :literal, "hello") }
         end
       end
 
@@ -148,9 +152,12 @@ module OMeta
         target :r
 
         def r
-          -> do
-            _or(-> { _apply(:exactly, "a") },
-                -> { _apply(:exactly, "b") })
+          ->(input) do
+            _or(
+              input,
+              ->(input) { _apply(input, :exactly, "a") },
+              ->(input) { _apply(input, :exactly, "b") }
+            )
           end
         end
       end
@@ -165,14 +172,20 @@ module OMeta
         target :xs
 
         def xs
-          -> do
+          ->(input) do
             _or(
-              -> do
-                _apply(:exactly, "x")
-                _apply(:xs)
+              input,
+              ->(input) do
+                res, input = _apply(input, :exactly, "x")
+
+                if res == OMeta::FAIL
+                  return [res, input]
+                end
+
+                _apply(input, :xs)
               end,
-              -> do
-                _apply(:empty)
+              ->(input) do
+                _apply(input, :empty)
               end
             )
           end
@@ -190,14 +203,20 @@ module OMeta
         target :xs
 
         def xs
-          -> do
+          ->(input) do
             _or(
-              -> do
-                _apply(:xs)
-                _apply(:exactly, "x")
+              input,
+              ->(input) do
+                res, input = _apply(input, :xs)
+
+                if res == OMeta::FAIL
+                  return [res, input]
+                end
+
+                _apply(input, :exactly, "x")
               end,
-              -> do
-                _apply(:empty)
+              ->(input) do
+                _apply(input, :empty)
               end
             )
           end

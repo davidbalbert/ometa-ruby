@@ -117,6 +117,8 @@ module OMeta
     end
   end
 
+  FAIL = Object.new
+
   class Parser
     class << self
       def target(target = nil)
@@ -128,47 +130,44 @@ module OMeta
       end
 
       def match(input, target = @target)
-        new(input).match(target)
+        new.match(input, target)
       end
 
       alias =~ match
       alias === match
     end
 
-    def initialize(input)
-      @input = input
+    attr_reader :input_after_match
+
+    def initialize
       @memo_table = MemoizationTable.new
     end
 
-    def match(target = self.class.target)
+    def match(input, target = self.class.target)
       if target.nil? && self.class.target.nil?
         raise ParseError, "Target cannot be nil. Either specify a target or set a default one using the `target' class method."
       elsif target.nil?
         raise ParseError, "Target cannot be nil."
       end
 
-      catch :match_failed do
-        _apply(target)
+      result, @input_after_match = _apply(input, target)
+
+      if result == FAIL
+        nil
+      else
+        result
       end
     end
 
-    def _apply(rule_name, *args)
-      if @memo_table.include?(rule_name, args, @input)
-        res, remaining_input = @memo_table[rule_name, args, @input]
-
-        if res
-          @input = remaining_input
-
-          return res
-        else
-          throw(:match_failed, nil)
-        end
+    def _apply(input, rule_name, *args)
+      if @memo_table.include?(rule_name, args, input)
+        return @memo_table[rule_name, args, input]
       end
 
-      original_input, remaining_input = @input
+      original_input, remaining_input = input
       longest_match_size = -1
 
-      @memo_table[rule_name, args, original_input] = [nil, @input] # start by memoizing a failure
+      @memo_table[rule_name, args, original_input] = [FAIL, input] # start by memoizing a failure
 
       loop do
         rule = send(rule_name, *args)
@@ -177,157 +176,138 @@ module OMeta
           raise OMetaError, "`#{rule_name}' must return a Proc"
         end
 
-        res = _call_rule(rule)
+        res, remaining_input = rule.call(original_input)
 
-        remaining_input = @input
+        match_size = original_input.size - remaining_input.size
 
-        match_size = original_input.size - @input.size
-
-        break if res.nil? || match_size <= longest_match_size
+        break if res == FAIL || match_size <= longest_match_size
 
         longest_match_size = match_size
-        @input = original_input
 
         @memo_table[rule_name, args, original_input] = [res, remaining_input]
       end
 
-      res, remaining_input = @memo_table[rule_name, args, original_input]
-
-      if res
-        @input = remaining_input
-
-        res
-      else
-        throw(:match_failed, nil)
-      end
+      @memo_table[rule_name, args, original_input]
     end
 
     def anything
-      ->  do
-        unless @input.empty?
-          c = @input[0]
-          @input = @input[1..-1]
-
-          c
+      ->(input) do
+        unless input.empty?
+          [input[0], input[1..-1]]
         else
-          throw(:match_failed, nil)
+          [FAIL, input]
         end
       end
     end
 
     def end
-      -> do
-        _not(-> { _apply(:anything) })
+      ->(input) do
+        _not(input, ->(input) { _apply(input, :anything) })
       end
     end
 
     def empty
-      -> { true }
+      ->(input) { [true, input] }
     end
 
     def char
-      -> do
-        c = _apply(:anything)
-        _pred(c.is_a?(String) && c.size == 1)
+      ->(input) do
+        c, remaining_input = _apply(input, :anything)
 
-        c
+        if c.is_a?(String) && c.size == 1
+          [c, remaining_input]
+        else
+          [FAIL, input]
+        end
       end
     end
 
     def exactly(c)
-      ->  do
-        if c == _apply(:anything)
-          c
+      ->(input) do
+        res, remaining_input = _apply(input, :anything)
+
+        if c == res
+          [res, remaining_input]
         else
-          throw(:match_failed, nil)
+          [FAIL, input]
         end
       end
     end
 
     def sequence(cs)
-      ->  do
+      ->(input) do
+        remaining_input = input
+
         cs.each_char do |c|
-          _apply(:exactly, c)
+          res, remaining_input = _apply(remaining_input, :exactly, c)
+
+          if res == FAIL
+            return [FAIL, input]
+          end
         end
 
-        cs
+        [cs, remaining_input]
       end
     end
 
     def literal(s)
-      ->  do
-        _apply(:sequence, s)
+      ->(input) do
+        _apply(input, :sequence, s)
       end
     end
 
-    def _not(rule)
-      original_input = @input
+    def _not(input, rule)
+      original_input = input
 
-      res = _call_rule(rule)
+      res, _ = rule.call(input)
 
-      if res.nil?
-        @input = original_input
-        true
+      if res == FAIL
+        [true, input]
       else
-        throw(:match_failed, nil)
+        [FAIL, input]
       end
     end
 
-    def _lookahead(rule)
-      _not(-> { _not(rule) })
+    def _lookahead(input, rule)
+      _not(input, ->(input) { _not(input, rule) })
     end
 
-    def _pred(expr)
-      if expr
-        true
-      else
-        throw(:match_failed, nil)
-      end
-    end
-
-    def _or(*rules)
-      original_input = @input
-      res = nil
-
+    def _or(input, *rules)
       rules.each do |rule|
-        res = _call_rule(rule)
+        res, remaining_input = rule.call(input)
 
-        return res if res
-
-        @input = original_input
+        return [res, remaining_input] unless res == FAIL
       end
 
-      throw(:match_failed, nil)
+      [FAIL, input]
     end
 
-    def _zero_or_more(rule)
+    def _zero_or_more(input, rule)
       results = []
+      last_good_input = input
 
       loop do
-        res = _call_rule(rule)
+        res, remaining_input = rule.call(input)
 
-        break unless res
+        break if res == FAIL
+
+        last_good_input = remaining_input
 
         results << res
       end
 
-      results
+      [results, last_good_input]
     end
 
-    def _one_or_more(rule)
-      res = _call_rule(rule)
+    def _one_or_more(input, rule)
+      res, remaining_input = rule.call(input)
 
-      if res.nil?
-        throw(:match_failed, nil)
+      if res == FAIL
+        return [FAIL, input]
       end
 
-      [res] + _zero_or_more(rule)
-    end
-
-    def _call_rule(rule)
-      catch :match_failed do
-        rule.call
-      end
+      zom_res, remaining_input = _zero_or_more(remaining_input, rule)
+      [[res] + zom_res, remaining_input]
     end
   end
 end
