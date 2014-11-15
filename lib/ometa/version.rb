@@ -1,3 +1,3 @@
-module Peg
+module OMeta
   VERSION = "0.0.1"
 end

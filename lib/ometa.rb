@@ -5,7 +5,7 @@ SimplerMath doesn't work.
 
 It works for num, but not for expr
 
-class SimplerMath < Peg::Parser
+class SimplerMath < OMeta::Parser
   target :expr
 
   def expr
@@ -32,7 +32,7 @@ class SimplerMath < Peg::Parser
   end
 end
 
-class SomeMath < Peg::Parser
+class SomeMath < OMeta::Parser
   target :expr
 
   def expr
@@ -70,7 +70,7 @@ class SomeMath < Peg::Parser
   end
 end
 
-class A < Peg::Parser
+class A < OMeta::Parser
   target :as
 
   def as
@@ -92,8 +92,8 @@ end
 
 =end
 
-module Peg
-  class PegError < StandardError; end
+module OMeta
+  class OMetaError < StandardError; end
 
   class MemoizationTable
     def initialize
@@ -174,7 +174,7 @@ module Peg
         rule = send(rule_name, *args)
 
         unless rule.is_a?(Proc)
-          raise PegError, "`#{rule_name}' must return a Proc"
+          raise OMetaError, "`#{rule_name}' must return a Proc"
         end
 
         res = _call_rule(rule)

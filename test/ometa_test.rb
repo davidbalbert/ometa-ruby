@@ -1,9 +1,9 @@
 require 'minitest/autorun'
 
-require 'peg'
+require 'ometa'
 
-module Peg
-  class PegTest < Minitest::Test
+module OMeta
+  class OMetaTest < Minitest::Test
     def assert_ometa_match(parser, input, with_remaining_input:)
       p = parser.new(input)
       assert p.match, "Parser didn't match #{input.inspect}"
@@ -14,7 +14,7 @@ module Peg
     end
 
     def test_anything
-      anything = Class.new(Peg::Parser) do
+      anything = Class.new(OMeta::Parser) do
         target :whatever
 
         def whatever
@@ -28,7 +28,7 @@ module Peg
     end
 
     def test_exactly
-      exactly = Class.new(Peg::Parser) do
+      exactly = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -43,7 +43,7 @@ module Peg
     end
 
     def test_end
-      the_end = Class.new(Peg::Parser) do
+      the_end = Class.new(OMeta::Parser) do
         target :end
       end
 
@@ -52,7 +52,7 @@ module Peg
     end
 
     def test_empty
-      empty = Class.new(Peg::Parser) do
+      empty = Class.new(OMeta::Parser) do
         target :empty
       end
 
@@ -61,7 +61,7 @@ module Peg
     end
 
     def test_anything_or_empty
-      anything_or_empty = Class.new(Peg::Parser) do
+      anything_or_empty = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -79,7 +79,7 @@ module Peg
     end
 
     def test_lookahead
-      lookahead = Class.new(Peg::Parser) do
+      lookahead = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -94,7 +94,7 @@ module Peg
     end
 
     def test_literal
-      literal = Class.new(Peg::Parser) do
+      literal = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -109,7 +109,7 @@ module Peg
     end
 
     def test_one_after_another
-      one_after_another = Class.new(Peg::Parser) do
+      one_after_another = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -127,7 +127,7 @@ module Peg
     end
 
     def test_apply
-      apply = Class.new(Peg::Parser) do
+      apply = Class.new(OMeta::Parser) do
         target :a
 
         def a
@@ -144,7 +144,7 @@ module Peg
     end
 
     def test_or
-      either_or = Class.new(Peg::Parser) do
+      either_or = Class.new(OMeta::Parser) do
         target :r
 
         def r
@@ -161,7 +161,7 @@ module Peg
     end
 
     def test_right_recursion
-      right = Class.new(Peg::Parser) do
+      right = Class.new(OMeta::Parser) do
         target :xs
 
         def xs
@@ -186,7 +186,7 @@ module Peg
     end
 
     def test_left_recursion
-      left = Class.new(Peg::Parser) do
+      left = Class.new(OMeta::Parser) do
         target :xs
 
         def xs

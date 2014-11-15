@@ -1,15 +1,15 @@
 # coding: utf-8
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'peg/version'
+require 'ometa/version'
 
 Gem::Specification.new do |spec|
   spec.name          = "peg"
-  spec.version       = Peg::VERSION
+  spec.version       = OMeta::VERSION
   spec.authors       = ["David Albert"]
   spec.email         = ["davidbalbert@gmail.com"]
-  spec.summary       = %q{A PEG library in Ruby}
-  spec.description   = %q{A PEG library in Ruby}
+  spec.summary       = %q{An OMeta in Ruby}
+  spec.description   = %q{An OMeta in Ruby}
   spec.homepage      = ""
   spec.license       = "MIT"
 
