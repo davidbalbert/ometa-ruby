@@ -228,7 +228,7 @@ module Peg
     def char
       -> do
         c = _apply(:anything)
-        _pred(c.is_a?(String))
+        _pred(c.is_a?(String) && c.size == 1)
 
         c
       end
