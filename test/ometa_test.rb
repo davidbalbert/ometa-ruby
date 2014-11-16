@@ -223,10 +223,10 @@ module OMeta
         end
       end
 
-      assert_match left, ""
-      assert_match left, "x"
-      assert_match left, "xx"
-      assert_match left, "xxy"
+      assert_ometa_match left, "", with_remaining_input: ""
+      assert_ometa_match left, "x", with_remaining_input: ""
+      assert_ometa_match left, "xx", with_remaining_input: ""
+      assert_ometa_match left, "xxy", with_remaining_input: "y"
     end
   end
 end
