@@ -36,6 +36,10 @@ module OMeta
       def rest
         nil
       end
+
+      def to_input_stream
+        self
+      end
     end
 
     def self.build(array)
@@ -60,6 +64,10 @@ module OMeta
 
     def ==(other)
       equal?(other) || other.is_a?(InputStream) && first == other.first && rest == other.rest
+    end
+
+    def to_input_stream
+      self
     end
   end
 
@@ -129,6 +137,10 @@ module OMeta
       end
     end
 
+    def apply(rule_name, *args)
+      ->(input) { _apply(input, rule_name, *args) }
+    end
+
     # Left Recursion in Parsing Expression Grammars:
     #   http://arxiv.org/pdf/1207.0443.pdf
     def _apply(input, rule_name, *args)
@@ -194,6 +206,25 @@ module OMeta
       end
     end
 
+    # digit = char:c ?(("0".."9").include?(c)) -> c
+    def digit
+      ->(input) do
+        original_input = input
+
+        c, input = _apply(input, :char)
+
+        if _fail?(c)
+          return [_fail, original_input]
+        end
+
+        unless ("0".."9").include?(c)
+          return [_fail, original_input]
+        end
+
+        [c, input]
+      end
+    end
+
     def exactly(c)
       ->(input) do
         res, remaining_input = _apply(input, :anything)
@@ -202,6 +233,22 @@ module OMeta
           [res, remaining_input]
         else
           [FAIL, input]
+        end
+      end
+    end
+
+    def foreign(klass)
+      ->(input) do
+        p = klass.new
+
+        res = p.match(input)
+
+        # p.match is an external interface, so it returns `nil`, not `FAIL` on
+        # failure.
+        if res.nil?
+          [FAIL, input]
+        else
+          [res, p.input_after_match]
         end
       end
     end
@@ -247,7 +294,7 @@ module OMeta
       end
     end
 
-    # token(s) = spaces sequence(s)
+    # token s = spaces sequence(s)
     def token(s)
       ->(input) do
         original_input = input
@@ -314,6 +361,18 @@ module OMeta
 
       zom_res, remaining_input = _zero_or_more(remaining_input, rule)
       [[res] + zom_res, remaining_input]
+    end
+
+    def _maybe(input, rule)
+      original_input = input
+
+      res, input = rule.call(input)
+
+      if res == FAIL
+        [nil, original_input]
+      else
+        [true, input]
+      end
     end
 
     def _nest(input, rule)

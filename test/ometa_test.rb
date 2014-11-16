@@ -347,5 +347,27 @@ module OMeta
       assert_ometa_match list, [[1,2,3],4], with_remaining_input: [4]
       refute_match list, [[1,2,3,4],5]
     end
+
+    def test_foreign
+      inner = Class.new(OMeta::Parser) do
+        target :r
+
+        def r
+          ->(input) { _apply(input, :exactly, "a") }
+        end
+      end
+
+      outer = Class.new(OMeta::Parser) do
+        target :r
+
+        define_method :r do
+          ->(input) { _apply(input, :foreign, inner) }
+        end
+      end
+
+      assert_ometa_match outer, "a", with_remaining_input: ""
+      assert_ometa_match outer, "ab", with_remaining_input: "b"
+      refute_match outer, "b"
+    end
   end
 end

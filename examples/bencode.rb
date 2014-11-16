@@ -1,4 +1,4 @@
-require 'peg'
+require 'ometa'
 
 require_relative 'netstring'
 
@@ -32,45 +32,192 @@ class Hash
   end
 end
 
-class Bencode < Peg::Grammar
+# ometa Bencode
+#   target :value
+#
+#   value = int | string | list | dict,
+#
+#   int = "i" number:num "e" -> num,
+#
+#   number = "-"?:neg positive_number:num -> (neg ? -1 * num : num),
+#
+#   positive_number = digit+:ds -> ds.join.to_i
+#
+#   string = foreign(Netstring)
+#
+#   list = "l" value*:values "e" -> values
+#
+#   dict = "d" pair*:pairs "e" -> pairs.to_h
+#
+#   pair = string:s value:v -> [s, v]
+# end
+class Bencode < OMeta::Parser
   target :value
 
   def value
-    _or(_call(:int), _call(:string), _call(:list), _call(:dict))
+    ->(input) do
+      original_input = input
+
+      _or(
+        input,
+        ->(input) { _apply(input, :int) },
+        ->(input) { _apply(input, :string) },
+        ->(input) { _apply(input, :list) },
+        ->(input) { _apply(input, :dict) }
+      )
+    end
   end
 
   def int
-    _seq(_lit("i"), _call(:number, name: :num), _lit("e")) { |num:| num }
+    ->(input) do
+      original_input = input
+
+      _res, input = _apply(input, :token, "i")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      num, input = _apply(input, :number)
+
+      if _fail?(num)
+        return [_fail, original_input]
+      end
+
+      _res, input = _apply(input, :token, "e")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      [num, input]
+    end
   end
 
   def number
-    _seq(_maybe(_lit("-"), name: :neg), _call(:positive_number, name: :num)) do |neg:, num:|
-      if neg
-        -1 * num
-      else
-        num
+    ->(input) do
+      original_input = input
+
+      neg, input = _maybe(
+        input,
+        ->(input) { _apply(input, :token, "-") }
+      )
+
+      if _fail?(neg)
+        return [FAIL, original_input]
       end
+
+      num, input = _apply(input, :positive_number)
+
+      if _fail?(num)
+        return [FAIL, original_input]
+      end
+
+      [(neg ? -1 * num : num), input]
     end
   end
 
   def positive_number
-    _one_or_more(_chars("0".."9"), name: :ds) { |ds:| ds.join.to_i }
+    ->(input) do
+      original_input = input
+
+      ds, input = _one_or_more(
+        input,
+        ->(input) { _apply(input, :digit) }
+      )
+
+      if _fail?(ds)
+        return [_fail, original_input]
+      end
+
+      [ds.join.to_i, input]
+    end
   end
 
   def string
-    _call(:foreign, Netstring)
+    ->(input) do
+      original_input = input
+
+      _apply(input, :foreign, Netstring)
+    end
   end
 
   def list
-    _seq(_lit("l"), _zero_or_more(_call(:value), name: :values), _lit("e")) { |values:| values }
+    ->(input) do
+      original_input = input
+
+      _res, input = _apply(input, :token, "l")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      values, input = _zero_or_more(
+        input,
+        ->(input) { _apply(input, :value) }
+      )
+
+      if _fail?(values)
+        return [_fail, original_input]
+      end
+
+      _res, input = _apply(input, :token, "e")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      [values, input]
+    end
   end
 
   def dict
-    _seq(_lit("d"), _zero_or_more(_call(:pair), name: :pairs), _lit("e")) { |pairs:| pairs.to_h }
+    ->(input) do
+      original_input = input
+
+      _res, input = _apply(input, :token, "d")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      pairs, input = _zero_or_more(
+        input,
+        ->(input) { _apply(input, :pair) }
+      )
+
+      if _fail?(pairs)
+        return [_fail, original_input]
+      end
+
+      _res, input = _apply(input, :token, "e")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      [pairs.to_h, input]
+    end
   end
 
   def pair
-    _seq(_call(:string, name: :s), _call(:value, name: :v)) { |s:, v:| [s, v] }
+    ->(input) do
+      original_input = input
+
+      s, input = _apply(input, :string)
+
+      if _fail?(s)
+        return [_fail, original_input]
+      end
+
+      v, input = _apply(input, :value)
+
+      if _fail?(v)
+        return [_fail, original_input]
+      end
+
+      [[s, v], input]
+    end
   end
 end
 

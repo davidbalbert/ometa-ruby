@@ -1,4 +1,4 @@
-require 'peg'
+require 'ometa'
 
 class String
   def to_netstring
@@ -6,28 +6,84 @@ class String
   end
 end
 
-class Netstring < Peg::Grammar
+# ometa Netstring
+#   target :netstring
+#
+#   netstring = length:l ":" repeat(:char, l):s -> s.join,
+#
+#   length = digit+:ds -> ds.join.to_i,
+#
+#   repeat rule, 1 = apply(rule):r -> [r],
+#   repeat rule, n = apply(rule):r repeat(rule, n-1):rest -> ([r] + rest)
+# end
+
+class Netstring < OMeta::Parser
   target :netstring
 
   def netstring
-    _seq(_call(:length, name: :l), _lit(":"), _call(:repeat, :_any, _var(:l), name: :s)) { |l:, s:| s }
+    ->(input) do
+      original_input = input
+
+      l, input = _apply(input, :length)
+
+      if _fail?(l)
+        return [_fail, original_input]
+      end
+
+      _res, input = _apply(input, :token, ":")
+
+      if _fail?(_res)
+        return [_fail, original_input]
+      end
+
+      s, input = _apply(input, :repeat, :char, l)
+
+      if _fail?(s)
+        return [_fail, original_input]
+      end
+
+      [s.join, input]
+    end
   end
 
   def length
-    _one_or_more(_call(:digit), name: :ds) { |ds:| ds.join.to_i }
-  end
+    ->(input) do
+      original_input = input
 
-  def digit
-    _chars("0".."9")
+      ds, input = _one_or_more(
+        input,
+        ->(input) { _apply(input, :digit) }
+      )
+
+      if _fail?(ds)
+        return [_fail, original_input]
+      end
+
+      [ds.join.to_i, input]
+    end
   end
 
   def repeat(rule, n)
-    case n
-    when 1
-      _call(:apply, rule)
-    else
-      _seq(_call(:apply, rule, name: :r), _call(:apply, :repeat, rule, n - 1, name: :rest)) do |r:, rest:|
-        r + rest
+    ->(input) do
+      original_input = input
+
+      case n
+      when 1
+        r, input = _apply(input, :apply, rule)
+
+        return [_fail, original_input] if _fail?(r)
+
+        [[r], input]
+      else
+        r, input = _apply(input, :apply, rule)
+
+        return [_fail, original_input] if _fail?(r)
+
+        rest, input = _apply(input, :repeat, rule, n - 1)
+
+        return [_fail, original_input] if _fail?(rest)
+
+        [([r] + rest), input]
       end
     end
   end
