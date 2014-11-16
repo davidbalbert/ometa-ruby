@@ -347,5 +347,9 @@ module OMeta
     def _fail?(res)
       res == FAIL
     end
+
+    def _fail
+      FAIL
+    end
   end
 end
