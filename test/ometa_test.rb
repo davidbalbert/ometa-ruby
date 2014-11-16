@@ -119,7 +119,7 @@ module OMeta
           ->(input) do
             res, input = _apply(input, :exactly, "a")
 
-            if res == OMeta::FAIL
+            if _fail?(res)
               return [res, input]
             end
 
@@ -182,7 +182,7 @@ module OMeta
               ->(input) do
                 res, input = _apply(input, :exactly, "x")
 
-                if res == OMeta::FAIL
+                if _fail?(res)
                   return [res, input]
                 end
 
@@ -213,7 +213,7 @@ module OMeta
               ->(input) do
                 res, input = _apply(input, :xs)
 
-                if res == OMeta::FAIL
+                if _fail?(res)
                   return [res, input]
                 end
 
@@ -259,13 +259,13 @@ module OMeta
               ->(input) do
                 res, input = _apply(input, :exactly, 1)
 
-                if res == OMeta::FAIL
+                if _fail?(res)
                   return [res, input]
                 end
 
                 res, input = _apply(input, :exactly, 2)
 
-                if res == OMeta::FAIL
+                if _fail?(res)
                   return [res, input]
                 end
 

@@ -307,5 +307,9 @@ module OMeta
 
       [res, remaining_input]
     end
+
+    def _fail?(res)
+      res == FAIL
+    end
   end
 end
