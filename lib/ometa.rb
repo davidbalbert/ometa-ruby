@@ -129,6 +129,8 @@ module OMeta
       end
     end
 
+    # Left Recursion in Parsing Expression Grammars:
+    #   http://arxiv.org/pdf/1207.0443.pdf
     def _apply(input, rule_name, *args)
       if @memo_table.include?(rule_name, args, input)
         return @memo_table[rule_name, args, input]
@@ -220,8 +222,42 @@ module OMeta
       end
     end
 
-    def literal(s)
+    # space = char:c ?([" ", "\t", "\r", "\n", "\f"].include?(c)) -> c
+    def space
       ->(input) do
+        original_input = input
+
+        c, input = _apply(input, :char)
+
+        if [" ", "\t", "\r", "\n", "\f"].include?(c)
+          [c, input]
+        else
+          [FAIL, original_input]
+        end
+      end
+    end
+
+    # spaces = space*
+    def spaces
+      ->(input) do
+        _zero_or_more(
+          input,
+          ->(input) { _apply(input, :space) }
+        )
+      end
+    end
+
+    # token(s) = spaces sequence(s)
+    def token(s)
+      ->(input) do
+        original_input = input
+
+        res, input = _apply(input, :spaces)
+
+        if _fail?(res)
+          return [FAIL, original_input]
+        end
+
         _apply(input, :sequence, s)
       end
     end
@@ -254,10 +290,10 @@ module OMeta
 
     def _zero_or_more(input, rule)
       results = []
-      last_good_input = input
+      last_good_input = remaining_input = input
 
       loop do
-        res, remaining_input = rule.call(input)
+        res, remaining_input = rule.call(remaining_input)
 
         break if res == FAIL
 

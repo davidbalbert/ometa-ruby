@@ -96,19 +96,86 @@ module OMeta
       refute_match lookahead, "b"
     end
 
-    def test_literal
-      literal = Class.new(OMeta::Parser) do
+    def test_zero_or_more
+      zom = Class.new(OMeta::Parser) do
         target :r
 
         def r
-          ->(input) { _apply(input, :literal, "hello") }
+          ->(input) do
+            _zero_or_more(
+              input,
+              ->(input) { _apply(input, :exactly, "a") }
+            )
+          end
         end
       end
 
-      assert_ometa_match literal, "hello", with_remaining_input: ""
-      assert_ometa_match literal, "hellothere", with_remaining_input: "there"
-      refute_match literal, "hell"
-      refute_match literal, ""
+      assert_ometa_match zom, "", with_remaining_input: ""
+      assert_ometa_match zom, "a", with_remaining_input: ""
+      assert_ometa_match zom, "aa", with_remaining_input: ""
+      assert_ometa_match zom, "aab", with_remaining_input: "b"
+    end
+
+    def test_one_or_more
+      oom = Class.new(OMeta::Parser) do
+        target :r
+
+        def r
+          ->(input) do
+            _one_or_more(
+              input,
+              ->(input) { _apply(input, :exactly, "a") }
+            )
+          end
+        end
+      end
+
+      refute_match oom, ""
+      assert_ometa_match oom, "a", with_remaining_input: ""
+      assert_ometa_match oom, "aa", with_remaining_input: ""
+      assert_ometa_match oom, "aab", with_remaining_input: "b"
+    end
+
+    def test_space
+      space = Class.new(OMeta::Parser) do
+        target :r
+
+        def r
+          ->(input) { _apply(input, :space) }
+        end
+      end
+
+      assert_ometa_match space, " ", with_remaining_input: ""
+      assert_ometa_match space, "\r\n", with_remaining_input: "\n"
+    end
+
+    def test_spaces
+      spaces = Class.new(OMeta::Parser) do
+        target :r
+
+        def r
+          ->(input) { _apply(input, :spaces) }
+        end
+      end
+
+      assert_ometa_match spaces, "", with_remaining_input: ""
+      assert_ometa_match spaces, " ", with_remaining_input: ""
+    end
+
+    def test_token
+      token = Class.new(OMeta::Parser) do
+        target :r
+
+        def r
+          ->(input) { _apply(input, :token, "hello") }
+        end
+      end
+
+      assert_ometa_match token, "hello", with_remaining_input: ""
+      assert_ometa_match token, "hellothere", with_remaining_input: "there"
+      assert_ometa_match token, "   hellothere", with_remaining_input: "there"
+      refute_match token, "hell"
+      refute_match token, ""
     end
 
     def test_one_after_another
@@ -143,7 +210,7 @@ module OMeta
         end
 
         def b
-          ->(input) { _apply(input, :literal, "hello") }
+          ->(input) { _apply(input, :token, "hello") }
         end
       end
 
