@@ -1,99 +1,67 @@
-=begin
-CURRENT STATUS
-
-SimplerMath doesn't work.
-
-It works for num, but not for expr
-
-class SimplerMath < OMeta::Parser
-  target :expr
-
-  def expr
-    -> do
-      _or(
-        -> do
-          e = _apply(:expr)
-          _apply(:literal, "+")
-          n = _apply(:num)
-
-          [:add, e, n]
-        end,
-        -> do
-          _apply(:num)
-        end
-      )
-    end
-  end
-
-  def num
-    -> do
-      _apply(:anything)
-    end
-  end
-end
-
-class SomeMath < OMeta::Parser
-  target :expr
-
-  def expr
-    -> do
-      _or(
-        -> do
-          e = _apply(:expr)
-          _apply(:literal, "+")
-          n = _apply(:num)
-
-          [:add, e, n]
-        end,
-        -> do
-          _apply(:num)
-        end
-      )
-    end
-  end
-
-  def num
-    -> do
-      digits = _one_or_more(-> { _apply(:digit) })
-
-      digits.join.to_i
-    end
-  end
-
-  def digit
-    -> do
-      c = _apply(:char)
-      _pred(("0".."9").include?(c))
-
-      c
-    end
-  end
-end
-
-class A < OMeta::Parser
-  target :as
-
-  def as
-    lambda do
-      _or(
-        lambda {
-          as = _apply(:as)
-          a = _apply(:literal, "a")
-
-          as + a
-        },
-        lambda {
-          _apply(:literal, "a")
-        }
-      )
-    end
-  end
-end
-
-=end
+require 'singleton'
 
 module OMeta
   class OMetaError < StandardError; end
+
+  class InputStream
+    module Conversions
+      refine String do
+        def to_input_stream
+          InputStream.build(chars)
+        end
+      end
+
+      refine Array do
+        def to_input_stream
+          InputStream.build(self)
+        end
+      end
+    end
+
+    class EmptyStream
+      include Singleton
+
+      def size
+        0
+      end
+
+      def empty?
+        true
+      end
+
+      def first
+        nil
+      end
+
+      def rest
+        nil
+      end
+    end
+
+    def self.build(array)
+      if array.empty?
+        EmptyStream.instance
+      else
+        new(array[0], build(array[1..-1]))
+      end
+    end
+
+    attr_reader :first, :rest, :size
+
+    def initialize(first, rest)
+      @first = first
+      @rest  = rest
+      @size  = 1 + rest.size
+    end
+
+    def empty?
+      false
+    end
+
+    def ==(other)
+      equal?(other) || other.is_a?(InputStream) && first == other.first && rest == other.rest
+    end
+  end
 
   class MemoizationTable
     def initialize
@@ -120,6 +88,8 @@ module OMeta
   FAIL = Object.new
 
   class Parser
+    using InputStream::Conversions
+
     class << self
       def target(target = nil)
         if target
@@ -150,7 +120,7 @@ module OMeta
         raise ParseError, "Target cannot be nil."
       end
 
-      result, @input_after_match = _apply(input, target)
+      result, @input_after_match = _apply(input.to_input_stream, target)
 
       if result == FAIL
         nil
@@ -193,7 +163,7 @@ module OMeta
     def anything
       ->(input) do
         unless input.empty?
-          [input[0], input[1..-1]]
+          [input.first, input.rest]
         else
           [FAIL, input]
         end
@@ -308,6 +278,34 @@ module OMeta
 
       zom_res, remaining_input = _zero_or_more(remaining_input, rule)
       [[res] + zom_res, remaining_input]
+    end
+
+    def _nest(input, rule)
+      res, remaining_input = _apply(input, :anything)
+
+      # res.respond_to?(:to_input_stream) doesn't work for refinements. This
+      # may change in the future, but for now, we have to use this ugly hack.
+      # See here for more info:
+      # http://ruby-doc.org/core-2.1.5/doc/syntax/refinements_rdoc.html#label-Indirect+Method+Calls
+      begin
+        nested_input = res.to_input_stream
+      rescue NoMethodError
+        return [FAIL, input]
+      end
+
+      nested_res, remaining_nested_input = rule.call(nested_input)
+
+      if nested_res == FAIL
+        return [FAIL, input]
+      end
+
+      matched_end, _ = _apply(remaining_nested_input, :end)
+
+      if matched_end == FAIL
+        return [FAIL, input]
+      end
+
+      [res, remaining_input]
     end
   end
 end

@@ -4,11 +4,15 @@ require 'ometa'
 
 module OMeta
   class OMetaTest < Minitest::Test
+    using InputStream::Conversions
+
     def assert_ometa_match(parser, input, with_remaining_input:)
       p = parser.new
       assert p.match(input), "Parser didn't match #{input.inspect}"
 
-      assert p.input_after_match == with_remaining_input, "Expected remaining input to be #{with_remaining_input.inspect} but #{p.input_after_match.inspect} remains."
+      expected_remaining_input = with_remaining_input.to_input_stream
+
+      assert p.input_after_match == expected_remaining_input, "Expected remaining input to be #{expected_remaining_input.inspect} but #{p.input_after_match.inspect} remains."
     end
 
     def test_anything
@@ -227,6 +231,54 @@ module OMeta
       assert_ometa_match left, "x", with_remaining_input: ""
       assert_ometa_match left, "xx", with_remaining_input: ""
       assert_ometa_match left, "xxy", with_remaining_input: "y"
+    end
+
+    def test_empty_list
+      list = Class.new(OMeta::Parser) do
+        target :top
+
+        def top
+          ->(input) do
+            _nest(input, ->(input) { [nil, input] })
+          end
+        end
+      end
+
+      assert_ometa_match list, [[]], with_remaining_input: []
+      refute_match list, [1]
+    end
+
+    def test_list
+      list = Class.new(OMeta::Parser) do
+        target :top
+
+        def top
+          -> (input) do
+            _nest(
+              input,
+              ->(input) do
+                res, input = _apply(input, :exactly, 1)
+
+                if res == OMeta::FAIL
+                  return [res, input]
+                end
+
+                res, input = _apply(input, :exactly, 2)
+
+                if res == OMeta::FAIL
+                  return [res, input]
+                end
+
+                _apply(input, :exactly, 3)
+              end
+            )
+          end
+        end
+      end
+
+      assert_ometa_match list, [[1,2,3]], with_remaining_input: []
+      assert_ometa_match list, [[1,2,3],4], with_remaining_input: [4]
+      refute_match list, [[1,2,3,4],5]
     end
   end
 end
